@@ -5,7 +5,7 @@ Production-oriented successor to
 It models multi-location cookie booth operations with adult volunteer roles,
 separate booth inventories, auditable transactions, and closing reconciliation.
 
-## First milestone
+## Product foundation
 
 - Organization-scoped booth directory
 - Live, scheduled, and closed booth states
@@ -17,6 +17,20 @@ separate booth inventories, auditable transactions, and closing reconciliation.
 - Responsive command-center and booth-operation views
 - Explicit privacy boundary excluding scout identities and sales-credit allocation
 
+## Milestone 2: external authentication
+
+- Clerk-powered Google, Microsoft, and email-code sign-in
+- Restricted, invitation-only enrollment
+- Server-side identity and membership checks
+- Signed Clerk webhook handling for user lifecycle synchronization
+- D1-backed external identity mapping and account status
+- Authenticated account controls and access-pending state
+- Real roles replace the former client-side role preview
+
+Authentication credentials are runtime configuration and are never committed.
+Copy `.env.example` for local development and store real values in protected
+hosting environment variables.
+
 ## Data boundaries
 
 The platform stores operational information about organizations, adult
@@ -25,8 +39,8 @@ store child information or allocate sales credit to individual scouts.
 
 ## Roadmap
 
-1. Server-enforced authentication and authorization
-2. Expiring adult-volunteer invitations
+1. Administrator invitation and role-management interface
+2. Booth-scoped permission policies on every API
 3. Barcode catalog registration
 4. Atomic scanner transactions and idempotency
 5. Real-time booth synchronization
