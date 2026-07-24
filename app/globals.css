@@ -1,3 +1,4 @@
+/* Cookie Booth Command Center production styles */
 @import "tailwindcss";
 :root{--bg:#07110d;--panel:#0f1c16;--panel2:#14261d;--line:#284035;--ink:#f6f4e9;--muted:#9eb0a6;--mint:#6ee2a8;--gold:#f3c65f;--red:#ff7575}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 90% 0,#17452f 0,transparent 28%),var(--bg);color:var(--ink);font:15px Arial,sans-serif}button,input,select{font:inherit}button,select{cursor:pointer}main{max-width:1480px;margin:auto;padding:26px 34px 50px}
