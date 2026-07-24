@@ -8,7 +8,7 @@ export function SignInPanel() {
       <section className="authCard">
         <p className="eyebrow">COOKIE BOOTH COMMAND CENTER</p>
         <h1>Welcome back.</h1>
-        <p>Sign in with an invited Google, Microsoft, or email account to continue.</p>
+        <p>Sign in with an invited Google or email account to continue.</p>
         <SignInButton mode="modal"><button className="primary authAction">Sign in securely</button></SignInButton>
         <small>Access is invitation-only. Signing in does not automatically grant booth access.</small>
       </section>
