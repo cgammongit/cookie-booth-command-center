@@ -2,6 +2,7 @@
 
 import { UserButton } from "@clerk/nextjs";
 import { useMemo, useState } from "react";
+import { PeopleRoles } from "./people-roles";
 
 type Booth = {
   id: number; name: string; address: string; window: string;
@@ -22,14 +23,35 @@ const flavors = [
   ["Lemon-Ups", 20, 24], ["Toffee-tastic", 5, 12], ["ExploreMores", 18, 24],
 ];
 
-export function Dashboard({ displayName, role }: { displayName: string; role: string }) {
+export function Dashboard({
+  displayName,
+  role,
+  organizationId,
+  organizationName,
+}: {
+  displayName: string;
+  role: string;
+  organizationId: number;
+  organizationName: string;
+}) {
   const [selected, setSelected] = useState<Booth | null>(null);
+  const [view, setView] = useState<"dashboard" | "people">("dashboard");
   const totals = useMemo(() => ({
     active: booths.filter((booth) => booth.status === "live").length,
     boxes: booths.reduce((total, booth) => total + booth.boxes, 0),
     revenue: booths.reduce((total, booth) => total + booth.revenue, 0),
   }), []);
   const firstName = displayName.split(" ")[0] || "there";
+
+  if (view === "people" && role === "admin") {
+    return (
+      <PeopleRoles
+        organizationId={organizationId}
+        organizationName={organizationName}
+        onBack={() => setView("dashboard")}
+      />
+    );
+  }
 
   if (selected) return (
     <main>
@@ -70,7 +92,14 @@ export function Dashboard({ displayName, role }: { displayName: string; role: st
     <main>
       <header>
         <div className="brand">COOKIE BOOTH <b>COMMAND CENTER</b></div>
-        <nav><button>Reports</button><button>People & roles</button><span className="roleBadge">{role}</span><UserButton /></nav>
+        <nav>
+          <button>Reports</button>
+          {role === "admin" && (
+            <button onClick={() => setView("people")}>People & roles</button>
+          )}
+          <span className="roleBadge">{role}</span>
+          <UserButton />
+        </nav>
       </header>
       <section className="welcome">
         <div><p className="eyebrow">TROOP OPERATIONS · ADULT VOLUNTEERS ONLY</p><h1>Good morning, {firstName}.</h1><p>Two booths are live. Inventory is healthy, with three low-stock alerts requiring attention.</p></div>

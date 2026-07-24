@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../db";
-import { memberships, users } from "../db/schema";
+import { memberships, organizations, users } from "../db/schema";
 import { PendingAccessPanel, SignInPanel } from "./auth-panels";
 import { Dashboard } from "./dashboard";
 
@@ -33,15 +33,32 @@ export default async function Home() {
 
   const db = getDb();
   const access = await db
-    .select({ displayName: users.displayName, role: memberships.role })
+    .select({
+      displayName: users.displayName,
+      role: memberships.role,
+      organizationId: organizations.id,
+      organizationName: organizations.name,
+    })
     .from(users)
     .innerJoin(
       memberships,
-      and(eq(memberships.userId, users.id), eq(users.status, "active")),
+      and(
+        eq(memberships.userId, users.id),
+        eq(memberships.status, "active"),
+        eq(users.status, "active"),
+      ),
     )
+    .innerJoin(organizations, eq(organizations.id, memberships.organizationId))
     .where(eq(users.clerkUserId, userId))
     .limit(1);
 
   if (!access[0]) return <PendingAccessPanel />;
-  return <Dashboard displayName={access[0].displayName} role={access[0].role} />;
+  return (
+    <Dashboard
+      displayName={access[0].displayName}
+      role={access[0].role}
+      organizationId={access[0].organizationId}
+      organizationName={access[0].organizationName}
+    />
+  );
 }
