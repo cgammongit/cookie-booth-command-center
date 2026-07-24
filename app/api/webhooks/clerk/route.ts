@@ -38,11 +38,14 @@ export async function POST(request: NextRequest) {
   if (event.type === "user.created" || event.type === "user.updated") {
     const user = event.data as ClerkUserData;
     const primaryEmail =
-      user.email_addresses.find((email) => email.id === user.primary_email_address_id) ??
-      user.email_addresses[0];
+      user.email_addresses?.find((email) => email.id === user.primary_email_address_id) ??
+      user.email_addresses?.[0];
 
+    // Clerk's generated webhook test payload may not contain an email address.
+    // Acknowledge it so Clerk does not retry a non-actionable synthetic event.
+    // Real invited users are synchronized once their event includes an email.
     if (!primaryEmail) {
-      return Response.json({ error: "User has no email address" }, { status: 422 });
+      return Response.json({ received: true, skipped: "user_has_no_email" });
     }
 
     const displayName =
