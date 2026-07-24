@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "cookie-booth-command-center",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-07-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cookie-booth-command-center-db",
+      "database_id": "086e7e3a-c155-49e7-99f5-ec34e8f195e6",
+      "migrations_dir": "drizzle"
+    }
+  ]
+}
