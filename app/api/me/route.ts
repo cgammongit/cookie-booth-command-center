@@ -19,7 +19,11 @@ export async function GET() {
     .from(users)
     .innerJoin(
       memberships,
-      and(eq(memberships.userId, users.id), eq(users.status, "active")),
+      and(
+        eq(memberships.userId, users.id),
+        eq(memberships.status, "active"),
+        eq(users.status, "active"),
+      ),
     )
     .innerJoin(organizations, eq(organizations.id, memberships.organizationId))
     .where(eq(users.clerkUserId, userId));

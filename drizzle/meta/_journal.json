@@ -15,6 +15,13 @@
       "when": 1784875048422,
       "tag": "0001_military_black_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784909012314,
+      "tag": "0002_tiny_onslaught",
+      "breakpoints": true
     }
   ]
 }
