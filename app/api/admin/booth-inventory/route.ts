@@ -43,9 +43,12 @@ export async function GET(request: Request) {
 
   const result = await env.DB.prepare(`
     SELECT p.id, p.name, p.barcode, p.price, p.active,
-      i.opening, i.sold, i.adjusted
+      i.opening, i.sold, i.adjusted,
+      COALESCE(tb.available, 0) AS troopAvailable
     FROM products p
     LEFT JOIN inventory i ON i.product_id = p.id AND i.booth_id = ?
+    LEFT JOIN troop_inventory_balances tb
+      ON tb.product_id = p.id AND tb.organization_id = p.organization_id
     WHERE p.organization_id = ?
     ORDER BY p.active DESC, p.name
   `).bind(parsed.data.boothId, parsed.data.organizationId).all();
@@ -121,7 +124,52 @@ export async function PUT(request: Request) {
     );
   }
 
+  const currentByProduct = new Map(existing.map((item) => [item.productId, Number(item.opening)]));
+  const changes = parsed.data.allocations
+    .map((item) => ({
+      productId: item.productId,
+      delta: item.opening - (currentByProduct.get(item.productId) || 0),
+    }))
+    .concat(
+      existing
+        .filter((item) => !requested.has(item.productId))
+        .map((item) => ({ productId: item.productId, delta: -Number(item.opening) })),
+    )
+    .filter((item) => item.delta !== 0);
+  const now = new Date().toISOString();
   const statements = [
+    ...changes.map((item) =>
+      env.DB.prepare(`
+        UPDATE troop_inventory_balances
+        SET available = available + ?, updated_at = ?
+        WHERE organization_id = ? AND product_id = ?
+      `).bind(
+        -item.delta,
+        now,
+        parsed.data.organizationId,
+        item.productId,
+      ),
+    ),
+    ...changes.map((item) =>
+      env.DB.prepare(`
+        INSERT INTO inventory_ledger (
+          organization_id, product_id, booth_id, actor_user_id, movement_type,
+          total_delta, available_delta, booth_delta, reason, created_at
+        ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+      `).bind(
+        parsed.data.organizationId,
+        item.productId,
+        parsed.data.boothId,
+        authorization.access.userId,
+        item.delta > 0 ? "booth_allocation" : "booth_return",
+        -item.delta,
+        item.delta,
+        item.delta > 0
+          ? "Opening inventory allocated to booth"
+          : "Opening inventory returned to available troop stock",
+        now,
+      ),
+    ),
     ...existing
       .filter((item) => !requested.has(item.productId))
       .map((item) =>
@@ -148,9 +196,19 @@ export async function PUT(request: Request) {
       authorization.access.userId,
       JSON.stringify(existing),
       JSON.stringify(parsed.data.allocations),
-      new Date().toISOString(),
+      now,
     ),
   ];
-  await env.DB.batch(statements);
+  try {
+    await env.DB.batch(statements);
+  } catch (error) {
+    if (String(error).toLowerCase().includes("check constraint")) {
+      return Response.json(
+        { error: "This allocation exceeds the troop inventory available for one or more products" },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
   return Response.json({ saved: true });
 }
