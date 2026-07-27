@@ -29,10 +29,12 @@ type Allocation = Product & {
 export function InventoryManagement({
   organizationId,
   organizationName,
+  initialBoothId = null,
   onBack,
 }: {
   organizationId: number;
   organizationName: string;
+  initialBoothId?: number | null;
   onBack: () => void;
 }) {
   const [products, setProducts] = useState<Product[]>([]);
@@ -48,6 +50,8 @@ export function InventoryManagement({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [draft, setDraft] = useState({ name: "", barcode: "", price: "6" });
+  const [editingProductId, setEditingProductId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState({ name: "", barcode: "", price: "" });
 
   const loadFoundation = useCallback(async () => {
     setLoading(true);
@@ -131,6 +135,17 @@ export function InventoryManagement({
     }
   }, [organizationId]);
 
+  useEffect(() => {
+    if (
+      initialBoothId &&
+      selectedBoothId === null &&
+      booths.some((booth) => booth.id === initialBoothId)
+    ) {
+      setSelectedBoothId(initialBoothId);
+      void loadAllocations(initialBoothId);
+    }
+  }, [booths, initialBoothId, loadAllocations, selectedBoothId]);
+
   const visibleProducts = useMemo(() => {
     const query = productQuery.trim().toLowerCase();
     return products.filter(
@@ -177,6 +192,47 @@ export function InventoryManagement({
       if (selectedBoothId) await loadAllocations(selectedBoothId);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Unable to create product");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  function beginEdit(product: Product) {
+    setEditingProductId(product.id);
+    setEditDraft({
+      name: product.name,
+      barcode: product.barcode,
+      price: Number(product.price).toFixed(2),
+    });
+    setError("");
+    setNotice("");
+  }
+
+  async function saveProductEdit(event: React.FormEvent<HTMLFormElement>, product: Product) {
+    event.preventDefault();
+    setSaving(`edit:${product.id}`);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/admin/products/${product.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          organizationId,
+          name: editDraft.name,
+          barcode: editDraft.barcode,
+          price: Number(editDraft.price),
+          active: Boolean(product.active),
+        }),
+      });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Unable to update product");
+      setEditingProductId(null);
+      setNotice("Product details updated with an audit record.");
+      await loadFoundation();
+      if (selectedBoothId) await loadAllocations(selectedBoothId);
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to update product");
     } finally {
       setSaving("");
     }
@@ -291,9 +347,23 @@ export function InventoryManagement({
               <div><strong>{product.name}</strong><small>{product.barcode}</small></div>
               <span>${Number(product.price).toFixed(2)}</span>
               <span>{product.boothCount} booth{Number(product.boothCount) === 1 ? "" : "s"}</span>
-              <button disabled={saving === `product:${product.id}`} onClick={() => void toggleProduct(product)}>
-                {product.active ? "Deactivate" : "Reactivate"}
-              </button>
+              <div className="catalogActions">
+                <button onClick={() => beginEdit(product)}>Edit</button>
+                <button disabled={saving === `product:${product.id}`} onClick={() => void toggleProduct(product)}>
+                  {product.active ? "Deactivate" : "Reactivate"}
+                </button>
+              </div>
+              {editingProductId === product.id && (
+                <form className="productEditForm" onSubmit={(event) => void saveProductEdit(event, product)}>
+                  <label>Name<input required maxLength={100} value={editDraft.name} onChange={(event) => setEditDraft({ ...editDraft, name: event.target.value })} /></label>
+                  <label>Barcode<input required maxLength={80} value={editDraft.barcode} onChange={(event) => setEditDraft({ ...editDraft, barcode: event.target.value })} /></label>
+                  <label>Price<input required min="0.01" max="100" step="0.01" type="number" value={editDraft.price} onChange={(event) => setEditDraft({ ...editDraft, price: event.target.value })} /></label>
+                  <div className="catalogActions">
+                    <button type="button" onClick={() => setEditingProductId(null)}>Cancel</button>
+                    <button className="saveAccess" disabled={saving === `edit:${product.id}`}>{saving === `edit:${product.id}` ? "Saving…" : "Save changes"}</button>
+                  </div>
+                </form>
+              )}
             </article>
           ))}
           {!loading && !visibleProducts.length && <div className="loadingState">No products match this view.</div>}

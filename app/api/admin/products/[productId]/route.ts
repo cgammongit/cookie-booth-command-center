@@ -35,23 +35,56 @@ export async function PATCH(
   const authorization = await requireOrganizationAdmin(parsed.data.organizationId);
   if (authorization.error) return authorization.error;
 
+  const before = await env.DB.prepare(`
+    SELECT id, name, barcode, price, active
+    FROM products WHERE id = ? AND organization_id = ?
+  `).bind(productId, parsed.data.organizationId).first<{
+    id: number;
+    name: string;
+    barcode: string;
+    price: number;
+    active: number;
+  }>();
+  if (!before) {
+    return Response.json({ error: "Product not found" }, { status: 404 });
+  }
+
   try {
-    const result = await env.DB.prepare(`
-      UPDATE products
-      SET name = ?, barcode = ?, price = ?, active = ?, updated_at = ?
-      WHERE id = ? AND organization_id = ?
-    `).bind(
-      parsed.data.name,
-      parsed.data.barcode,
-      parsed.data.price,
-      parsed.data.active ? 1 : 0,
-      new Date().toISOString(),
-      productId,
-      parsed.data.organizationId,
-    ).run();
-    if (!result.meta.changes) {
-      return Response.json({ error: "Product not found" }, { status: 404 });
-    }
+    const now = new Date().toISOString();
+    const after = {
+      id: productId,
+      name: parsed.data.name,
+      barcode: parsed.data.barcode,
+      price: parsed.data.price,
+      active: parsed.data.active ? 1 : 0,
+    };
+    await env.DB.batch([
+      env.DB.prepare(`
+        UPDATE products
+        SET name = ?, barcode = ?, price = ?, active = ?, updated_at = ?
+        WHERE id = ? AND organization_id = ?
+      `).bind(
+        after.name,
+        after.barcode,
+        after.price,
+        after.active,
+        now,
+        productId,
+        parsed.data.organizationId,
+      ),
+      env.DB.prepare(`
+        INSERT INTO product_catalog_audit (
+          organization_id, product_id, actor_user_id, before_json, after_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `).bind(
+        parsed.data.organizationId,
+        productId,
+        authorization.access.userId,
+        JSON.stringify(before),
+        JSON.stringify(after),
+        now,
+      ),
+    ]);
     return Response.json({ updated: true });
   } catch (error) {
     if (String(error).toLowerCase().includes("unique")) {
