@@ -94,6 +94,7 @@ export function Dashboard({
   const [selected, setSelected] = useState<Booth | null>(null);
   const [selectedInventory, setSelectedInventory] = useState<BoothInventoryItem[]>([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [inventoryBoothId, setInventoryBoothId] = useState<number | null>(null);
   const [view, setView] = useState<
     "dashboard" | "people" | "booths" | "archives" | "inventory"
   >("dashboard");
@@ -255,7 +256,9 @@ export function Dashboard({
       <BoothManagement
         organizationId={organizationId}
         organizationName={organizationName}
+        initialBoothId={inventoryBoothId}
         onBack={() => {
+          setInventoryBoothId(null);
           setView("dashboard");
           setShowCreate(false);
           void loadBooths();
@@ -351,7 +354,16 @@ export function Dashboard({
       </section>
       <div className="sectionHead">
         <div><p className="eyebrow">BOOTH INVENTORY</p><h2>Live counts</h2></div>
-        {canReconcile && <button>Close & reconcile booth</button>}
+        <div className="sectionActions">
+          {role === "admin" && (
+            <button onClick={() => {
+              setInventoryBoothId(selected.id);
+              setSelected(null);
+              setView("inventory");
+            }}>Manage booth products</button>
+          )}
+          {canReconcile && <button>Close & reconcile booth</button>}
+        </div>
       </div>
       <section className="inventory">
         {selectedInventory.map((item, index) => (
@@ -381,7 +393,10 @@ export function Dashboard({
           {role === "admin" && (
             <>
               <button onClick={() => setView("booths")}>Booth management</button>
-              <button onClick={() => setView("inventory")}>Products & inventory</button>
+              <button onClick={() => {
+                setInventoryBoothId(null);
+                setView("inventory");
+              }}>Products & inventory</button>
               <button onClick={() => setView("archives")}>Archived booths</button>
             </>
           )}
