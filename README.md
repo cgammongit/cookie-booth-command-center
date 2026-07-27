@@ -84,6 +84,14 @@ The product and inventory administration release additionally requires
 `0007_product_inventory_administration.sql`. Apply it before deploying source
 that uses the Products & inventory administrator interface.
 
+The troop-wide inventory release requires
+`0009_troop_inventory_ledger.sql`. It creates the authoritative troop balance
+projection and append-only stock ledger. Existing booth counts are preserved
+as migrated booth-held stock rather than duplicated as newly available
+inventory. After deployment, administrators receive initial and replenishment
+orders under **Troop inventory**; booth allocation changes transfer available
+stock without reducing total troop-owned inventory.
+
 Google Places autocomplete is optional and activates when
 `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is configured in the protected hosting
 environment. Restrict the browser key to the production hostname and to the
