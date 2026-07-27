@@ -2,6 +2,7 @@
 
 import { UserButton } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArchivedBooths } from "./archived-booths";
 import { BoothManagement } from "./booth-management";
 import { GooglePlaceField, type SelectedPlace } from "./google-place-field";
 import { PeopleRoles } from "./people-roles";
@@ -85,7 +86,9 @@ export function Dashboard({
     assignmentRequired: false,
   });
   const [selected, setSelected] = useState<Booth | null>(null);
-  const [view, setView] = useState<"dashboard" | "people" | "booths">("dashboard");
+  const [view, setView] = useState<
+    "dashboard" | "people" | "booths" | "archives"
+  >("dashboard");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
@@ -232,6 +235,19 @@ export function Dashboard({
     );
   }
 
+  if (view === "archives" && role === "admin") {
+    return (
+      <ArchivedBooths
+        organizationId={organizationId}
+        organizationName={organizationName}
+        onBack={() => {
+          setView("dashboard");
+          void loadBooths();
+        }}
+      />
+    );
+  }
+
   if (selected) return (
     <main>
       <header>
@@ -307,7 +323,10 @@ export function Dashboard({
         <nav>
           {permissions.canViewReports && <button>Reports</button>}
           {role === "admin" && (
-            <button onClick={() => setView("booths")}>Booth management</button>
+            <>
+              <button onClick={() => setView("booths")}>Booth management</button>
+              <button onClick={() => setView("archives")}>Archived booths</button>
+            </>
           )}
           {mayOpenAccessCenter && (
             <button onClick={() => setView("people")}>

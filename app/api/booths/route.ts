@@ -89,6 +89,8 @@ export async function GET(request: Request) {
       ) AS lead
     FROM booths b
     WHERE b.organization_id = ?
+      AND b.archived_at IS NULL
+      AND b.status <> 'closed'
       AND (? = 0 OR EXISTS (
         SELECT 1 FROM assignments own
         WHERE own.booth_id = b.id AND own.user_id = ?
