@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArchivedBooths } from "./archived-booths";
 import { BoothManagement } from "./booth-management";
 import { GooglePlaceField, type SelectedPlace } from "./google-place-field";
+import { InventoryManagement } from "./inventory-management";
 import { PeopleRoles } from "./people-roles";
 
 type Booth = {
@@ -36,11 +37,16 @@ type BoothResponse = {
   error?: string;
 };
 
-const flavors = [
-  ["Thin Mints", 16, 42], ["Samoas", 8, 38], ["Tagalongs", 19, 36],
-  ["Trefoils", 27, 30], ["Do-Si-Dos", 22, 30], ["Adventurefuls", 13, 24],
-  ["Lemon-Ups", 20, 24], ["Toffee-tastic", 5, 12], ["ExploreMores", 18, 24],
-];
+type BoothInventoryItem = {
+  productId: number;
+  name: string;
+  barcode: string;
+  price: number;
+  opening: number;
+  sold: number;
+  adjusted: number;
+  remaining: number;
+};
 
 function formatWindow(booth: Booth) {
   const start = new Date(booth.startsAt);
@@ -86,8 +92,10 @@ export function Dashboard({
     assignmentRequired: false,
   });
   const [selected, setSelected] = useState<Booth | null>(null);
+  const [selectedInventory, setSelectedInventory] = useState<BoothInventoryItem[]>([]);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
   const [view, setView] = useState<
-    "dashboard" | "people" | "booths" | "archives"
+    "dashboard" | "people" | "booths" | "archives" | "inventory"
   >("dashboard");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -162,6 +170,31 @@ export function Dashboard({
   const handlePlaceSelected = useCallback((place: SelectedPlace) => {
     setBoothDraft((current) => ({ ...current, ...place }));
   }, []);
+
+  useEffect(() => {
+    if (!selected) return;
+    let active = true;
+    void fetch(`/api/booths/${selected.id}`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as {
+          inventory?: BoothInventoryItem[];
+          error?: string;
+        };
+        if (!response.ok) throw new Error(payload.error || "Unable to load booth inventory");
+        if (active) setSelectedInventory(payload.inventory || []);
+      })
+      .catch((loadError: unknown) => {
+        if (active) {
+          setError(loadError instanceof Error ? loadError.message : "Unable to load booth inventory");
+        }
+      })
+      .finally(() => {
+        if (active) setInventoryLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selected]);
 
   async function createBooth(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -248,10 +281,26 @@ export function Dashboard({
     );
   }
 
+  if (view === "inventory" && role === "admin") {
+    return (
+      <InventoryManagement
+        organizationId={organizationId}
+        organizationName={organizationName}
+        onBack={() => {
+          setView("dashboard");
+          void loadBooths();
+        }}
+      />
+    );
+  }
+
   if (selected) return (
     <main>
       <header>
-        <button className="back" onClick={() => setSelected(null)}>← All booths</button>
+        <button className="back" onClick={() => {
+          setSelected(null);
+          setSelectedInventory([]);
+        }}>← All booths</button>
         <div className="brand">COOKIE BOOTH <b>COMMAND CENTER</b></div>
         <UserButton />
       </header>
@@ -305,13 +354,20 @@ export function Dashboard({
         {canReconcile && <button>Close & reconcile booth</button>}
       </div>
       <section className="inventory">
-        {flavors.map(([name, left, start], index) => (
-          <article className={Number(left) <= 8 ? "warning" : ""} key={String(name)}>
-            <i className={`chip c${index % 5}`}>{String(name).slice(0, 2).toUpperCase()}</i>
-            <div><h3>{name}</h3><small>{start} opening · {Number(start) - Number(left)} sold</small></div>
-            <strong>{left}<small> left</small></strong>
+        {selectedInventory.map((item, index) => (
+          <article className={Number(item.remaining) <= 8 ? "warning" : ""} key={item.productId}>
+            <i className={`chip c${index % 5}`}>{item.name.slice(0, 2).toUpperCase()}</i>
+            <div><h3>{item.name}</h3><small>{item.opening} opening · {item.sold} sold · {item.adjusted} adjusted</small></div>
+            <strong>{item.remaining}<small> left</small></strong>
           </article>
         ))}
+        {!inventoryLoading && !selectedInventory.length && (
+          <div className="emptyBooths">
+            <h3>No products allocated</h3>
+            <p>An administrator can configure opening counts under Products & inventory.</p>
+          </div>
+        )}
+        {inventoryLoading && <div className="loadingState">Loading live inventory…</div>}
       </section>
     </main>
   );
@@ -325,6 +381,7 @@ export function Dashboard({
           {role === "admin" && (
             <>
               <button onClick={() => setView("booths")}>Booth management</button>
+              <button onClick={() => setView("inventory")}>Products & inventory</button>
               <button onClick={() => setView("archives")}>Archived booths</button>
             </>
           )}
@@ -400,7 +457,11 @@ export function Dashboard({
       ) : booths.length ? (
         <section className="booths">
           {booths.map((booth) => (
-            <button className="booth" key={booth.id} onClick={() => setSelected(booth)}>
+            <button className="booth" key={booth.id} onClick={() => {
+              setSelectedInventory([]);
+              setInventoryLoading(true);
+              setSelected(booth);
+            }}>
               <div><span className={`pill ${booth.status}`}>{booth.status}</span><h3>{booth.name}</h3><p>{booth.locationName || booth.address}</p><small>{formatWindow(booth)}</small></div>
               <dl><div><dt>Lead</dt><dd>{booth.lead || "Not assigned"}</dd></div><div><dt>Boxes</dt><dd>{booth.boxes}</dd></div><div><dt>Sales</dt><dd>${Number(booth.revenue).toLocaleString()}</dd></div></dl>
               <footer>{booth.status === "live" && canOperate ? "Open command center" : "View booth"} <b>→</b></footer>
