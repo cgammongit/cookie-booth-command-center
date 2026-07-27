@@ -66,3 +66,23 @@ export async function requireOrganizationAdmin(organizationId: number) {
   }
   return { error: null, access };
 }
+
+export async function requireInvitationManager(organizationId: number) {
+  const access = await getOrganizationAccess(organizationId);
+  if (!access) {
+    return {
+      error: Response.json({ error: "Access not assigned" }, { status: 403 }),
+      access: null,
+    };
+  }
+  if (access.role !== "admin" && !(access.role === "lead" && access.canInviteUsers)) {
+    return {
+      error: Response.json(
+        { error: "Invitation permission is required" },
+        { status: 403 },
+      ),
+      access: null,
+    };
+  }
+  return { error: null, access };
+}

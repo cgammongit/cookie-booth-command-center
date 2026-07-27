@@ -33,7 +33,7 @@ hosting environment variables.
 
 ## Milestone 3: organization access administration
 
-The first Milestone 3 deliverable adds:
+Milestone 3 organization-access deliverables add:
 
 - Organization-scoped membership status and role administration
 - Delegated invitation rights for specifically approved leads
@@ -42,10 +42,18 @@ The first Milestone 3 deliverable adds:
 - Protection against removing the final active administrator
 - Append-only audit entries for role, status, and invitation-right changes
 - A responsive People & Roles administrator interface
+- Clerk-powered invitation email delivery
+- Role assignment before an invitation is sent
+- Delegated leads restricted to volunteer invitations
+- Pending membership creation and automatic webhook activation after signup
+- Resend and cancellation controls for pending invitations
+- Retained invitation history and append-only invitation audit entries
 
-Invitation delivery remains a later Milestone 3 workflow. The current interface
-controls whether a lead will be authorized to invite volunteers once that
-workflow is connected.
+Apply all D1 migrations before deploying source that depends on them:
+
+```bash
+npx wrangler d1 migrations apply cookie-booth-command-center-db --remote
+```
 
 ## Data boundaries
 
@@ -55,13 +63,12 @@ store child information or allocate sales credit to individual scouts.
 
 ## Roadmap
 
-1. Administrator and delegated-lead invitation workflow
-2. Booth-scoped permission policies on every API
-3. Booth, product, and inventory administration
-4. Atomic scanner transactions and idempotency
-5. Real-time booth synchronization
-6. Opening and closing workflows
-7. Cross-location reporting and automatic exports
+1. Booth-scoped permission policies on every API
+2. Booth, product, and inventory administration
+3. Atomic scanner transactions and idempotency
+4. Real-time booth synchronization
+5. Opening and closing workflows
+6. Cross-location reporting and automatic exports
 
 ## Development
 

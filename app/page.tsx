@@ -36,6 +36,7 @@ export default async function Home() {
     .select({
       displayName: users.displayName,
       role: memberships.role,
+      canInviteUsers: memberships.canInviteUsers,
       organizationId: organizations.id,
       organizationName: organizations.name,
     })
@@ -57,6 +58,7 @@ export default async function Home() {
     <Dashboard
       displayName={access[0].displayName}
       role={access[0].role}
+      canInviteUsers={access[0].canInviteUsers}
       organizationId={access[0].organizationId}
       organizationName={access[0].organizationName}
     />

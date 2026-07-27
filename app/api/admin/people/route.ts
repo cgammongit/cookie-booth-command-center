@@ -7,6 +7,7 @@ import {
   users,
 } from "../../../../db/schema";
 import { requireOrganizationAdmin } from "../../../../lib/access";
+import { listOrganizationInvitations } from "../../../../lib/invitations";
 
 const querySchema = z.object({
   organizationId: z.coerce.number().int().positive(),
@@ -61,6 +62,7 @@ export async function GET(request: Request) {
   return Response.json({
     people,
     audit,
+    invitations: await listOrganizationInvitations(organizationId),
     currentUserId: authorization.access.userId,
   });
 }
