@@ -42,7 +42,7 @@ export async function GET(request: Request) {
   if (!booth) return Response.json({ error: "Booth not found" }, { status: 404 });
 
   const result = await env.DB.prepare(`
-    SELECT p.id AS productId, p.name, p.barcode, p.price, p.active,
+    SELECT p.id, p.name, p.barcode, p.price, p.active,
       i.opening, i.sold, i.adjusted
     FROM products p
     LEFT JOIN inventory i ON i.product_id = p.id AND i.booth_id = ?
