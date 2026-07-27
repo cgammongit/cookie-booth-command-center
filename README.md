@@ -62,6 +62,10 @@ Milestone 3 organization-access deliverables add:
 - Separate views for naturally closed and manually archived booths
 - Activity-aware administrator alerts when a booth is manually archived
 - Acknowledgement, review, mute, and resolution controls with lifecycle audit history
+- Organization product catalog with barcode, price, and active-status controls
+- Per-booth opening inventory configuration with searchable booth selection
+- Retained product records and auditable before-and-after inventory allocations
+- D1-backed live inventory reads in the booth command center
 
 Apply all D1 migrations before deploying source that depends on them:
 
@@ -75,6 +79,10 @@ that reads its new columns and tables. Manually archiving a booth removes it
 from active operations but retains its inventory, transactions, assignments,
 and reconciliation history. Naturally closed booths remain separately
 identified in the archive.
+
+The product and inventory administration release additionally requires
+`0007_product_inventory_administration.sql`. Apply it before deploying source
+that uses the Products & inventory administrator interface.
 
 Google Places autocomplete is optional and activates when
 `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is configured in the protected hosting
