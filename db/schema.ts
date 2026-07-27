@@ -153,3 +153,34 @@ export const productCatalogAudit=sqliteTable("product_catalog_audit",{
  index("product_catalog_audit_org_created").on(t.organizationId,t.createdAt),
  index("product_catalog_audit_product").on(t.productId),
 ]);
+
+export const troopInventoryBalances=sqliteTable("troop_inventory_balances",{
+ id:integer("id").primaryKey({autoIncrement:true}),
+ organizationId:integer("organization_id").notNull(),
+ productId:integer("product_id").notNull(),
+ totalRemaining:integer("total_remaining").notNull().default(0),
+ available:integer("available").notNull().default(0),
+ updatedAt:text("updated_at").notNull(),
+},t=>[
+ uniqueIndex("troop_inventory_balance_org_product").on(t.organizationId,t.productId),
+ index("troop_inventory_balance_org").on(t.organizationId),
+]);
+
+export const inventoryLedger=sqliteTable("inventory_ledger",{
+ id:integer("id").primaryKey({autoIncrement:true}),
+ organizationId:integer("organization_id").notNull(),
+ productId:integer("product_id").notNull(),
+ boothId:integer("booth_id"),
+ actorUserId:integer("actor_user_id"),
+ movementType:text("movement_type",{enum:["initial_order","replenishment","booth_allocation","booth_return","trade_in","trade_out","council_return","damage","loss","correction_in","correction_out","legacy_migration"]}).notNull(),
+ totalDelta:integer("total_delta").notNull().default(0),
+ availableDelta:integer("available_delta").notNull().default(0),
+ boothDelta:integer("booth_delta").notNull().default(0),
+ reason:text("reason"),
+ reference:text("reference"),
+ createdAt:text("created_at").notNull(),
+},t=>[
+ index("inventory_ledger_org_created").on(t.organizationId,t.createdAt),
+ index("inventory_ledger_product_created").on(t.productId,t.createdAt),
+ index("inventory_ledger_booth").on(t.boothId),
+]);
