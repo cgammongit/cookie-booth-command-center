@@ -22,7 +22,14 @@ type AuditEntry = {
   id: number;
   actorUserId: number;
   targetMembershipId: number;
-  action: "role_changed" | "status_changed" | "invitation_rights_changed";
+  action:
+    | "role_changed"
+    | "status_changed"
+    | "invitation_rights_changed"
+    | "invitation_created"
+    | "invitation_resent"
+    | "invitation_cancelled"
+    | "invitation_accepted";
   beforeJson: string;
   afterJson: string;
   createdAt: string;
@@ -31,7 +38,22 @@ type AuditEntry = {
 type PeopleResponse = {
   people: Person[];
   audit: AuditEntry[];
+  invitations: Invitation[];
   currentUserId: number;
+};
+
+type Invitation = {
+  id: number;
+  membershipId: number;
+  email: string;
+  role: Role;
+  canInviteUsers: boolean;
+  status: "pending" | "accepted" | "cancelled" | "expired";
+  invitedByName: string;
+  createdAt: string;
+  updatedAt: string;
+  acceptedAt: string | null;
+  cancelledAt: string | null;
 };
 
 const roleLabels: Record<Role, string> = {
@@ -45,6 +67,10 @@ const actionLabels: Record<AuditEntry["action"], string> = {
   role_changed: "changed a role",
   status_changed: "changed access status",
   invitation_rights_changed: "changed invitation rights",
+  invitation_created: "created an invitation",
+  invitation_resent: "resent an invitation",
+  invitation_cancelled: "cancelled an invitation",
+  invitation_accepted: "accepted an invitation",
 };
 
 function formatDate(value: string) {
@@ -64,10 +90,12 @@ function formatDate(value: string) {
 export function PeopleRoles({
   organizationId,
   organizationName,
+  canManagePeople,
   onBack,
 }: {
   organizationId: number;
   organizationName: string;
+  canManagePeople: boolean;
   onBack: () => void;
 }) {
   const [data, setData] = useState<PeopleResponse | null>(null);
@@ -76,6 +104,11 @@ export function PeopleRoles({
   const [savingId, setSavingId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<Role>("volunteer");
+  const [inviteCanInvite, setInviteCanInvite] = useState(false);
+  const [sendingInvite, setSendingInvite] = useState(false);
+  const [invitationActionId, setInvitationActionId] = useState<number | null>(null);
 
   const applyPayload = useCallback((payload: PeopleResponse) => {
     setData(payload);
@@ -86,13 +119,15 @@ export function PeopleRoles({
 
   const fetchPeople = useCallback(async () => {
     const response = await fetch(
-      `/api/admin/people?organizationId=${organizationId}`,
+      canManagePeople
+        ? `/api/admin/people?organizationId=${organizationId}`
+        : `/api/organization-invitations?organizationId=${organizationId}`,
       { cache: "no-store" },
     );
     const payload = (await response.json()) as PeopleResponse & { error?: string };
     if (!response.ok) throw new Error(payload.error || "Unable to load people");
     return payload;
-  }, [organizationId]);
+  }, [canManagePeople, organizationId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -174,30 +209,233 @@ export function PeopleRoles({
     }
   }
 
+  async function createInvitation(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSendingInvite(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/organization-invitations", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          organizationId,
+          email: inviteEmail,
+          role: canManagePeople ? inviteRole : "volunteer",
+          canInviteUsers:
+            canManagePeople && inviteRole === "lead" && inviteCanInvite,
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Unable to send invitation");
+      setInviteEmail("");
+      setInviteRole("volunteer");
+      setInviteCanInvite(false);
+      setNotice("Invitation sent securely through Clerk.");
+      await load();
+    } catch (inviteError) {
+      setError(
+        inviteError instanceof Error ? inviteError.message : "Unable to send invitation",
+      );
+    } finally {
+      setSendingInvite(false);
+    }
+  }
+
+  async function invitationAction(
+    invitation: Invitation,
+    action: "resend" | "cancel",
+  ) {
+    setInvitationActionId(invitation.id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(
+        `/api/organization-invitations/${invitation.id}/${action}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ organizationId }),
+        },
+      );
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || `Unable to ${action} invitation`);
+      }
+      setNotice(
+        action === "resend"
+          ? `A new invitation was sent to ${invitation.email}.`
+          : `The invitation for ${invitation.email} was cancelled.`,
+      );
+      await load();
+    } catch (actionError) {
+      setError(
+        actionError instanceof Error
+          ? actionError.message
+          : `Unable to ${action} invitation`,
+      );
+    } finally {
+      setInvitationActionId(null);
+    }
+  }
+
   return (
     <main>
       <header>
         <button className="back" onClick={onBack}>← Command center</button>
         <div className="brand">COOKIE BOOTH <b>COMMAND CENTER</b></div>
-        <span className="roleBadge">ADMIN</span>
+        <span className="roleBadge">{canManagePeople ? "ADMIN" : "LEAD · INVITER"}</span>
       </header>
 
       <section className="peopleHero">
         <div>
           <p className="eyebrow">ORGANIZATION ACCESS · {organizationName}</p>
-          <h1>People & roles</h1>
-          <p>Manage adult operator access without changing identity-provider accounts.</p>
+          <h1>{canManagePeople ? "People & roles" : "Invitations"}</h1>
+          <p>
+            {canManagePeople
+              ? "Manage adult operator access without changing identity-provider accounts."
+              : "Invite adult volunteers using your delegated organization permission."}
+          </p>
         </div>
         <div className="peopleSummary">
-          <strong>{data?.people.length ?? 0}</strong>
-          <span>memberships</span>
+          <strong>
+            {canManagePeople
+              ? data?.people.length ?? 0
+              : data?.invitations.filter((invitation) => invitation.status === "pending")
+                  .length ?? 0}
+          </strong>
+          <span>{canManagePeople ? "memberships" : "pending invites"}</span>
         </div>
       </section>
 
       {error && <div className="alert errorAlert" role="alert">{error}</div>}
       {notice && <div className="alert successAlert" role="status">{notice}</div>}
 
+      <section className="peoplePanel invitationPanel">
+        <div className="panelHeading">
+          <div>
+            <p className="eyebrow">SECURE ONBOARDING</p>
+            <h2>Invite an adult operator</h2>
+          </div>
+          <span className="permissionNote">
+            {canManagePeople ? "Administrator scope" : "Volunteers only"}
+          </span>
+        </div>
+        <form className="invitationForm" onSubmit={(event) => void createInvitation(event)}>
+          <label>
+            Email address
+            <input
+              type="email"
+              value={inviteEmail}
+              onChange={(event) => setInviteEmail(event.target.value)}
+              placeholder="volunteer@example.com"
+              required
+              maxLength={254}
+            />
+          </label>
+          {canManagePeople && (
+            <label>
+              Organization role
+              <select
+                value={inviteRole}
+                onChange={(event) => {
+                  const role = event.target.value as Role;
+                  setInviteRole(role);
+                  if (role !== "lead") setInviteCanInvite(false);
+                }}
+              >
+                {Object.entries(roleLabels).map(([value, label]) => (
+                  <option value={value} key={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {canManagePeople && inviteRole === "lead" && (
+            <label className="invitePermission">
+              <input
+                type="checkbox"
+                checked={inviteCanInvite}
+                onChange={(event) => setInviteCanInvite(event.target.checked)}
+              />
+              Allow this lead to invite volunteers
+            </label>
+          )}
+          <button className="primary" type="submit" disabled={sendingInvite}>
+            {sendingInvite ? "Sending…" : "Send invitation"}
+          </button>
+        </form>
+      </section>
+
       <section className="peoplePanel">
+        <div className="panelHeading">
+          <div>
+            <p className="eyebrow">INVITATION LEDGER</p>
+            <h2>Organization invitations</h2>
+          </div>
+          <span className="permissionNote">Retained for audit</span>
+        </div>
+        {!data?.invitations.length ? (
+          <div className="loadingState">No invitations have been sent.</div>
+        ) : (
+          <div className="peopleTableWrap">
+            <table className="peopleTable invitationTable">
+              <thead>
+                <tr>
+                  <th>Invitee</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Invited by</th>
+                  <th>Sent</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.invitations.map((invitation) => (
+                  <tr key={invitation.id}>
+                    <td><strong>{invitation.email}</strong></td>
+                    <td>
+                      {roleLabels[invitation.role]}
+                      {invitation.canInviteUsers && <small>May invite volunteers</small>}
+                    </td>
+                    <td>
+                      <span className={`invitationStatus ${invitation.status}`}>
+                        {invitation.status}
+                      </span>
+                    </td>
+                    <td>{invitation.invitedByName}</td>
+                    <td>{formatDate(invitation.createdAt)}</td>
+                    <td>
+                      {invitation.status === "pending" ? (
+                        <div className="invitationActions">
+                          <button
+                            type="button"
+                            disabled={invitationActionId === invitation.id}
+                            onClick={() => void invitationAction(invitation, "resend")}
+                          >
+                            Resend
+                          </button>
+                          <button
+                            type="button"
+                            className="dangerButton"
+                            disabled={invitationActionId === invitation.id}
+                            onClick={() => void invitationAction(invitation, "cancel")}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="permissionNote">No action</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {canManagePeople && <section className="peoplePanel">
         <div className="panelHeading">
           <div>
             <p className="eyebrow">ACCESS DIRECTORY</p>
@@ -303,9 +541,9 @@ export function PeopleRoles({
             </table>
           </div>
         )}
-      </section>
+      </section>}
 
-      <section className="auditPanel">
+      {canManagePeople && <section className="auditPanel">
         <div className="panelHeading">
           <div>
             <p className="eyebrow">IMMUTABLE HISTORY</p>
@@ -332,13 +570,14 @@ export function PeopleRoles({
             ))}
           </ol>
         )}
-      </section>
+      </section>}
 
       <aside>
         <b>Safety controls</b>
         <span>
-          Invitation rights apply only to leads in this organization. The final
-          active administrator cannot be demoted or suspended.
+          {canManagePeople
+            ? "Invitation rights apply only to leads in this organization. The final active administrator cannot be demoted or suspended."
+            : "Delegated invitation rights permit volunteer invitations only. Role and access changes remain administrator-only."}
         </span>
       </aside>
     </main>

@@ -26,13 +26,32 @@ export const accessAuditLog=sqliteTable("access_audit_log",{
  organizationId:integer("organization_id").notNull(),
  actorUserId:integer("actor_user_id").notNull(),
  targetMembershipId:integer("target_membership_id").notNull(),
- action:text("action",{enum:["role_changed","status_changed","invitation_rights_changed"]}).notNull(),
+ action:text("action",{enum:["role_changed","status_changed","invitation_rights_changed","invitation_created","invitation_resent","invitation_cancelled","invitation_accepted"]}).notNull(),
  beforeJson:text("before_json").notNull(),
  afterJson:text("after_json").notNull(),
  createdAt:text("created_at").notNull(),
 },t=>[
  index("access_audit_organization_created").on(t.organizationId,t.createdAt),
  index("access_audit_target_membership").on(t.targetMembershipId),
+]);
+export const organizationInvitations=sqliteTable("organization_invitations",{
+ id:integer("id").primaryKey({autoIncrement:true}),
+ organizationId:integer("organization_id").notNull(),
+ membershipId:integer("membership_id").notNull(),
+ email:text("email").notNull(),
+ role:text("role",{enum:["admin","lead","volunteer","auditor"]}).notNull(),
+ canInviteUsers:integer("can_invite_users",{mode:"boolean"}).notNull().default(false),
+ status:text("status",{enum:["pending","accepted","cancelled","expired"]}).notNull().default("pending"),
+ clerkInvitationId:text("clerk_invitation_id").notNull().unique(),
+ invitedByUserId:integer("invited_by_user_id").notNull(),
+ createdAt:text("created_at").notNull(),
+ updatedAt:text("updated_at").notNull(),
+ acceptedAt:text("accepted_at"),
+ cancelledAt:text("cancelled_at"),
+},t=>[
+ index("organization_invitation_org_status").on(t.organizationId,t.status),
+ index("organization_invitation_email_status").on(t.email,t.status),
+ index("organization_invitation_membership").on(t.membershipId),
 ]);
 export const booths=sqliteTable("booths",{id:integer("id").primaryKey({autoIncrement:true}),organizationId:integer("organization_id").notNull(),name:text("name").notNull(),address:text("address").notNull(),startsAt:text("starts_at").notNull(),endsAt:text("ends_at").notNull(),status:text("status",{enum:["draft","scheduled","live","closed"]}).notNull().default("draft")});
 export const assignments=sqliteTable("assignments",{id:integer("id").primaryKey({autoIncrement:true}),boothId:integer("booth_id").notNull(),userId:integer("user_id").notNull(),role:text("role",{enum:["lead","volunteer","auditor"]}).notNull()});

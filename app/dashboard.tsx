@@ -26,11 +26,13 @@ const flavors = [
 export function Dashboard({
   displayName,
   role,
+  canInviteUsers,
   organizationId,
   organizationName,
 }: {
   displayName: string;
   role: string;
+  canInviteUsers: boolean;
   organizationId: number;
   organizationName: string;
 }) {
@@ -43,11 +45,14 @@ export function Dashboard({
   }), []);
   const firstName = displayName.split(" ")[0] || "there";
 
-  if (view === "people" && role === "admin") {
+  const mayOpenAccessCenter = role === "admin" || (role === "lead" && canInviteUsers);
+
+  if (view === "people" && mayOpenAccessCenter) {
     return (
       <PeopleRoles
         organizationId={organizationId}
         organizationName={organizationName}
+        canManagePeople={role === "admin"}
         onBack={() => setView("dashboard")}
       />
     );
@@ -94,8 +99,10 @@ export function Dashboard({
         <div className="brand">COOKIE BOOTH <b>COMMAND CENTER</b></div>
         <nav>
           <button>Reports</button>
-          {role === "admin" && (
-            <button onClick={() => setView("people")}>People & roles</button>
+          {mayOpenAccessCenter && (
+            <button onClick={() => setView("people")}>
+              {role === "admin" ? "People & roles" : "Invitations"}
+            </button>
           )}
           <span className="roleBadge">{role}</span>
           <UserButton />
