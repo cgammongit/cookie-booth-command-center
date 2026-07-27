@@ -140,3 +140,16 @@ export const inventoryConfigurationAudit=sqliteTable("inventory_configuration_au
 ]);
 export const transactions=sqliteTable("transactions",{id:text("id").primaryKey(),boothId:integer("booth_id").notNull(),productId:integer("product_id").notNull(),operatorId:integer("operator_id").notNull(),type:text("type",{enum:["sale","correction","adjustment"]}).notNull(),quantity:integer("quantity").notNull(),amount:real("amount").notNull(),reason:text("reason"),createdAt:text("created_at").notNull()});
 export const reconciliations=sqliteTable("reconciliations",{id:integer("id").primaryKey({autoIncrement:true}),boothId:integer("booth_id").notNull().unique(),closedBy:integer("closed_by").notNull(),cashTotal:real("cash_total").notNull(),digitalTotal:real("digital_total").notNull(),notes:text("notes"),closedAt:text("closed_at").notNull()});
+
+export const productCatalogAudit=sqliteTable("product_catalog_audit",{
+ id:integer("id").primaryKey({autoIncrement:true}),
+ organizationId:integer("organization_id").notNull(),
+ productId:integer("product_id").notNull(),
+ actorUserId:integer("actor_user_id").notNull(),
+ beforeJson:text("before_json").notNull(),
+ afterJson:text("after_json").notNull(),
+ createdAt:text("created_at").notNull(),
+},t=>[
+ index("product_catalog_audit_org_created").on(t.organizationId,t.createdAt),
+ index("product_catalog_audit_product").on(t.productId),
+]);
