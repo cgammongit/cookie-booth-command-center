@@ -63,7 +63,13 @@ export async function POST(request: Request) {
       parsed.data.price,
       now,
     ).run();
-    return Response.json({ productId: result.meta.last_row_id }, { status: 201 });
+    const productId = Number(result.meta.last_row_id);
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO troop_inventory_balances (
+        organization_id, product_id, total_remaining, available, updated_at
+      ) VALUES (?, ?, 0, 0, ?)
+    `).bind(parsed.data.organizationId, productId, now).run();
+    return Response.json({ productId }, { status: 201 });
   } catch (error) {
     if (String(error).toLowerCase().includes("unique")) {
       return Response.json(
