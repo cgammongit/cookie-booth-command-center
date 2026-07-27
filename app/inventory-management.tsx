@@ -24,6 +24,7 @@ type Allocation = Product & {
   opening: number | null;
   sold: number | null;
   adjusted: number | null;
+  troopAvailable: number;
 };
 
 export function InventoryManagement({
@@ -141,6 +142,8 @@ export function InventoryManagement({
       selectedBoothId === null &&
       booths.some((booth) => booth.id === initialBoothId)
     ) {
+      // This one-time deep-link selection is derived from the asynchronously loaded booth list.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedBoothId(initialBoothId);
       void loadAllocations(initialBoothId);
     }
@@ -295,7 +298,7 @@ export function InventoryManagement({
       });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "Unable to save inventory");
-      setNotice("Opening inventory saved with an audit record.");
+      setNotice("Booth allocation saved as an audited transfer from troop inventory.");
       await loadAllocations(selectedBoothId);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save inventory");
@@ -317,7 +320,7 @@ export function InventoryManagement({
         <div>
           <p className="eyebrow">INVENTORY CONTROL · {organizationName}</p>
           <h1>Products & inventory</h1>
-          <p>Maintain one product catalog and configure opening counts booth by booth.</p>
+          <p>Maintain the product catalog and transfer available troop stock to each booth.</p>
         </div>
         <div className="peopleSummary">
           <strong>{products.filter((product) => Boolean(product.active)).length}</strong>
@@ -400,7 +403,7 @@ export function InventoryManagement({
         <div className="peoplePanel allocationPanel">
           <div className="panelHeading">
             <div>
-              <p className="eyebrow">OPENING COUNTS</p>
+              <p className="eyebrow">BOOTH ALLOCATION</p>
               <h2>{selectedBooth?.name || "Select a booth"}</h2>
             </div>
             {selectedBooth && (
@@ -431,7 +434,7 @@ export function InventoryManagement({
                     <small>
                       {Number(item.sold || 0) || Number(item.adjusted || 0)
                         ? `${item.sold || 0} sold · ${item.adjusted || 0} adjusted`
-                        : item.opening === null ? "Not at this booth" : "Ready to open"}
+                        : `${item.troopAvailable || 0} available · ${item.opening ?? 0} allocated`}
                     </small>
                   </label>
                 ))}
@@ -440,7 +443,7 @@ export function InventoryManagement({
           )}
         </div>
       </section>
-      <aside><b>Audit boundary</b><span>Catalog records are deactivated rather than deleted. Every saved booth allocation records its before-and-after state.</span></aside>
+      <aside><b>Transfer boundary</b><span>Allocations reduce available troop stock without reducing troop-owned totals. Over-allocation is rejected by the server.</span></aside>
     </main>
   );
 }
