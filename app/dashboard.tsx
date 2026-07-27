@@ -7,6 +7,7 @@ import { BoothManagement } from "./booth-management";
 import { GooglePlaceField, type SelectedPlace } from "./google-place-field";
 import { InventoryManagement } from "./inventory-management";
 import { PeopleRoles } from "./people-roles";
+import { TroopInventory } from "./troop-inventory";
 
 type Booth = {
   id: number;
@@ -96,7 +97,7 @@ export function Dashboard({
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryBoothId, setInventoryBoothId] = useState<number | null>(null);
   const [view, setView] = useState<
-    "dashboard" | "people" | "booths" | "archives" | "inventory"
+    "dashboard" | "people" | "booths" | "archives" | "inventory" | "troopInventory"
   >("dashboard");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -297,6 +298,19 @@ export function Dashboard({
     );
   }
 
+  if (view === "troopInventory" && role === "admin") {
+    return (
+      <TroopInventory
+        organizationId={organizationId}
+        organizationName={organizationName}
+        onBack={() => {
+          setView("dashboard");
+          void loadBooths();
+        }}
+      />
+    );
+  }
+
   if (selected) return (
     <main>
       <header>
@@ -397,6 +411,7 @@ export function Dashboard({
                 setInventoryBoothId(null);
                 setView("inventory");
               }}>Products & inventory</button>
+              <button onClick={() => setView("troopInventory")}>Troop inventory</button>
               <button onClick={() => setView("archives")}>Archived booths</button>
             </>
           )}
