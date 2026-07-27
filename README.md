@@ -54,12 +54,22 @@ Milestone 3 organization-access deliverables add:
 - Server-side booth authorization helpers and protected booth endpoints
 - Role-aware navigation and operational controls
 - Audited booth assignment and removal actions
+- Searchable, paginated booth-centric staffing administration
+- Google Places location selection with manual-address fallback
+- Stored Google Place IDs and coordinates for stable location identity
+- One-tap Google Maps directions for authorized booth users
 
 Apply all D1 migrations before deploying source that depends on them:
 
 ```bash
 npx wrangler d1 migrations apply cookie-booth-command-center-db --remote
 ```
+
+Google Places autocomplete is optional and activates when
+`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is configured in the protected hosting
+environment. Restrict the browser key to the production hostname and to the
+Maps JavaScript API and Places API (New). Booth creation continues to support
+manual address entry when the key is absent or Maps is unavailable.
 
 ## Data boundaries
 

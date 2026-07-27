@@ -41,22 +41,7 @@ type PeopleResponse = {
   people: Person[];
   audit: AuditEntry[];
   invitations: Invitation[];
-  booths?: AssignmentBooth[];
-  assignments?: BoothAssignment[];
   currentUserId: number;
-};
-
-type AssignmentBooth = {
-  id: number;
-  name: string;
-  startsAt: string;
-  status: "draft" | "scheduled" | "live" | "closed";
-};
-
-type BoothAssignment = {
-  boothId: number;
-  userId: number;
-  role: "lead" | "volunteer" | "auditor";
 };
 
 type Invitation = {
@@ -128,7 +113,6 @@ export function PeopleRoles({
   const [inviteCanInvite, setInviteCanInvite] = useState(false);
   const [sendingInvite, setSendingInvite] = useState(false);
   const [invitationActionId, setInvitationActionId] = useState<number | null>(null);
-  const [assignmentAction, setAssignmentAction] = useState("");
 
   const applyPayload = useCallback((payload: PeopleResponse) => {
     setData(payload);
@@ -296,45 +280,6 @@ export function PeopleRoles({
       );
     } finally {
       setInvitationActionId(null);
-    }
-  }
-
-  async function updateAssignment(
-    person: Person,
-    booth: AssignmentBooth,
-    assigned: boolean,
-  ) {
-    const actionKey = `${person.userId}:${booth.id}`;
-    setAssignmentAction(actionKey);
-    setError("");
-    setNotice("");
-    try {
-      const response = await fetch("/api/admin/booth-assignments", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          organizationId,
-          boothId: booth.id,
-          userId: person.userId,
-          assigned,
-        }),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Unable to update booth access");
-      setNotice(
-        assigned
-          ? `${person.displayName} was assigned to ${booth.name}.`
-          : `${person.displayName} was removed from ${booth.name}.`,
-      );
-      await load();
-    } catch (assignmentError) {
-      setError(
-        assignmentError instanceof Error
-          ? assignmentError.message
-          : "Unable to update booth access",
-      );
-    } finally {
-      setAssignmentAction("");
     }
   }
 
@@ -513,7 +458,6 @@ export function PeopleRoles({
                   <th>Person</th>
                   <th>Role</th>
                   <th>Access</th>
-                  <th>Booth access</th>
                   <th>Invitation rights</th>
                   <th>Action</th>
                 </tr>
@@ -527,8 +471,6 @@ export function PeopleRoles({
                     (draft.role === "lead" && draft.canInviteUsers) !==
                       (person.role === "lead" && person.canInviteUsers);
                   const isCurrentUser = person.userId === data.currentUserId;
-                  const organizationWide =
-                    draft.role === "admin" || draft.role === "auditor";
                   return (
                     <tr key={person.membershipId}>
                       <td>
@@ -571,47 +513,6 @@ export function PeopleRoles({
                           <option value="pending">Pending</option>
                           <option value="suspended">Suspended</option>
                         </select>
-                      </td>
-                      <td>
-                        {organizationWide ? (
-                          <span className="scopeBadge">All organization booths</span>
-                        ) : data.booths?.length ? (
-                          <div className="assignmentList">
-                            {data.booths.map((booth) => {
-                              const assigned = Boolean(
-                                data.assignments?.some(
-                                  (assignment) =>
-                                    assignment.boothId === booth.id &&
-                                    assignment.userId === person.userId,
-                                ),
-                              );
-                              const actionKey = `${person.userId}:${booth.id}`;
-                              return (
-                                <label key={booth.id}>
-                                  <input
-                                    type="checkbox"
-                                    checked={assigned}
-                                    disabled={
-                                      assignmentAction === actionKey ||
-                                      person.status !== "active" ||
-                                      draft.role !== person.role
-                                    }
-                                    onChange={(event) =>
-                                      void updateAssignment(
-                                        person,
-                                        booth,
-                                        event.target.checked,
-                                      )
-                                    }
-                                  />
-                                  <span>{booth.name}</span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <span className="permissionNote">Create a booth first</span>
-                        )}
                       </td>
                       <td>
                         <label className={`inviteToggle ${draft.role !== "lead" ? "disabled" : ""}`}>
@@ -679,7 +580,7 @@ export function PeopleRoles({
         <b>Safety controls</b>
         <span>
           {canManagePeople
-            ? "Administrators and auditors have organization-wide booth visibility. Leads and volunteers can access only assigned booths. Save role changes before editing assignments."
+            ? "Roles and account status are managed here. Use Booth management to search booths and assign leads or volunteers at scale."
             : "Delegated invitation rights permit volunteer invitations only. Role and access changes remain administrator-only."}
         </span>
       </aside>

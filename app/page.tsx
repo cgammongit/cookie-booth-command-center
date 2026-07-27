@@ -61,6 +61,7 @@ export default async function Home() {
       canInviteUsers={access[0].canInviteUsers}
       organizationId={access[0].organizationId}
       organizationName={access[0].organizationName}
+      googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ""}
     />
   );
 }
