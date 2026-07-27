@@ -1,27 +1,61 @@
 "use client";
 
 import { UserButton } from "@clerk/nextjs";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PeopleRoles } from "./people-roles";
 
 type Booth = {
-  id: number; name: string; address: string; window: string;
-  status: "live" | "scheduled" | "closed";
-  lead: string; boxes: number; revenue: number; low: number;
+  id: number;
+  name: string;
+  address: string;
+  startsAt: string;
+  endsAt: string;
+  status: "draft" | "scheduled" | "live" | "closed";
+  lead: string | null;
+  boxes: number;
+  revenue: number;
+  low: number;
 };
 
-const booths: Booth[] = [
-  { id: 1, name: "Bristol Food City", address: "Bristol, VA", window: "Today · 10:00 AM–2:00 PM", status: "live", lead: "Booth Lead A", boxes: 148, revenue: 888, low: 2 },
-  { id: 2, name: "State Street Market", address: "Bristol, TN", window: "Today · 12:00–4:00 PM", status: "live", lead: "Booth Lead B", boxes: 96, revenue: 576, low: 1 },
-  { id: 3, name: "Highlands Shopping Center", address: "Bristol, VA", window: "Tomorrow · 9:00 AM–1:00 PM", status: "scheduled", lead: "Booth Lead C", boxes: 0, revenue: 0, low: 0 },
-  { id: 4, name: "Community Center", address: "Bristol, TN", window: "Jul 22 · Closed", status: "closed", lead: "Booth Lead D", boxes: 211, revenue: 1266, low: 0 },
-];
+type BoothPermissions = {
+  canCreateBooths: boolean;
+  canViewReports: boolean;
+  assignmentRequired: boolean;
+};
+
+type BoothResponse = {
+  booths: Booth[];
+  permissions: BoothPermissions;
+  error?: string;
+};
 
 const flavors = [
   ["Thin Mints", 16, 42], ["Samoas", 8, 38], ["Tagalongs", 19, 36],
   ["Trefoils", 27, 30], ["Do-Si-Dos", 22, 30], ["Adventurefuls", 13, 24],
   ["Lemon-Ups", 20, 24], ["Toffee-tastic", 5, 12], ["ExploreMores", 18, 24],
 ];
+
+function formatWindow(booth: Booth) {
+  const start = new Date(booth.startsAt);
+  const end = new Date(booth.endsAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return `${booth.startsAt}–${booth.endsAt}`;
+  }
+  const date = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(start);
+  const time = new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${date} · ${time.format(start)}–${time.format(end)}`;
+}
+
+function toLocalDateTimeInput(date: Date) {
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
 
 export function Dashboard({
   displayName,
@@ -36,16 +70,108 @@ export function Dashboard({
   organizationId: number;
   organizationName: string;
 }) {
+  const [booths, setBooths] = useState<Booth[]>([]);
+  const [permissions, setPermissions] = useState<BoothPermissions>({
+    canCreateBooths: false,
+    canViewReports: false,
+    assignmentRequired: false,
+  });
   const [selected, setSelected] = useState<Booth | null>(null);
   const [view, setView] = useState<"dashboard" | "people">("dashboard");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const now = useMemo(() => new Date(), []);
+  const [boothDraft, setBoothDraft] = useState({
+    name: "",
+    address: "",
+    startsAt: toLocalDateTimeInput(new Date(now.getTime() + 86_400_000)),
+    endsAt: toLocalDateTimeInput(new Date(now.getTime() + 90_000_000)),
+  });
+
+  const loadBooths = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/booths?organizationId=${organizationId}`, {
+        cache: "no-store",
+      });
+      const payload = (await response.json()) as BoothResponse;
+      if (!response.ok) throw new Error(payload.error || "Unable to load booths");
+      setBooths(payload.booths);
+      setPermissions(payload.permissions);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load booths");
+    } finally {
+      setLoading(false);
+    }
+  }, [organizationId]);
+
+  useEffect(() => {
+    let active = true;
+    void fetch(`/api/booths?organizationId=${organizationId}`, {
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        const payload = (await response.json()) as BoothResponse;
+        if (!response.ok) throw new Error(payload.error || "Unable to load booths");
+        if (active) {
+          setBooths(payload.booths);
+          setPermissions(payload.permissions);
+        }
+      })
+      .catch((loadError: unknown) => {
+        if (active) {
+          setError(loadError instanceof Error ? loadError.message : "Unable to load booths");
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [organizationId]);
+
   const totals = useMemo(() => ({
     active: booths.filter((booth) => booth.status === "live").length,
-    boxes: booths.reduce((total, booth) => total + booth.boxes, 0),
-    revenue: booths.reduce((total, booth) => total + booth.revenue, 0),
-  }), []);
+    boxes: booths.reduce((total, booth) => total + Number(booth.boxes), 0),
+    revenue: booths.reduce((total, booth) => total + Number(booth.revenue), 0),
+    alerts: booths.reduce((total, booth) => total + Number(booth.low), 0),
+  }), [booths]);
   const firstName = displayName.split(" ")[0] || "there";
-
   const mayOpenAccessCenter = role === "admin" || (role === "lead" && canInviteUsers);
+  const canOperate = role !== "auditor";
+  const canReconcile = role === "admin" || role === "lead";
+
+  async function createBooth(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCreating(true);
+    setError("");
+    try {
+      const response = await fetch("/api/booths", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          organizationId,
+          name: boothDraft.name,
+          address: boothDraft.address,
+          startsAt: new Date(boothDraft.startsAt).toISOString(),
+          endsAt: new Date(boothDraft.endsAt).toISOString(),
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Unable to create booth");
+      setShowCreate(false);
+      setBoothDraft((current) => ({ ...current, name: "", address: "" }));
+      await loadBooths();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Unable to create booth");
+    } finally {
+      setCreating(false);
+    }
+  }
 
   if (view === "people" && mayOpenAccessCenter) {
     return (
@@ -53,7 +179,10 @@ export function Dashboard({
         organizationId={organizationId}
         organizationName={organizationName}
         canManagePeople={role === "admin"}
-        onBack={() => setView("dashboard")}
+        onBack={() => {
+          setView("dashboard");
+          void loadBooths();
+        }}
       />
     );
   }
@@ -66,21 +195,38 @@ export function Dashboard({
         <UserButton />
       </header>
       <section className="boothHero">
-        <div><p className="eyebrow">LIVE BOOTH · {selected.window}</p><h1>{selected.name}</h1><p>{selected.address} · Lead: {selected.lead}</p></div>
-        <div className="live">● Live and syncing</div>
+        <div>
+          <p className="eyebrow">{selected.status.toUpperCase()} BOOTH · {formatWindow(selected)}</p>
+          <h1>{selected.name}</h1>
+          <p>{selected.address} · Lead: {selected.lead || "Not assigned"}</p>
+        </div>
+        <div className={selected.status === "live" ? "live" : "permissionNote"}>
+          {selected.status === "live" ? "● Live and syncing" : selected.status}
+        </div>
       </section>
-      <section className="scan">
-        <label>SCAN COOKIE BARCODE</label>
-        <div><input autoFocus placeholder="Scanner ready…" /><button>Record sale</button></div>
-        <small>Transactions receive a unique ID and are written to an append-only audit ledger.</small>
-      </section>
+      {canOperate && selected.status === "live" ? (
+        <section className="scan">
+          <label>SCAN COOKIE BARCODE</label>
+          <div><input autoFocus placeholder="Scanner ready…" /><button>Record sale</button></div>
+          <small>Transaction persistence is the next protected API deliverable.</small>
+        </section>
+      ) : (
+        <div className="alert policyAlert">
+          {role === "auditor"
+            ? "Read-only audit access: booth operations are disabled."
+            : "Sales can be recorded only while this booth is live."}
+        </div>
+      )}
       <section className="stats">
         <article><span>Boxes sold</span><strong>{selected.boxes}</strong></article>
-        <article><span>Gross sales</span><strong>${selected.revenue.toLocaleString()}</strong></article>
+        <article><span>Gross sales</span><strong>${Number(selected.revenue).toLocaleString()}</strong></article>
         <article><span>Low inventory</span><strong>{selected.low}</strong></article>
-        <article><span>Connected devices</span><strong>3</strong></article>
+        <article><span>Access mode</span><strong className="accessMode">{role === "auditor" ? "Read" : "Operate"}</strong></article>
       </section>
-      <div className="sectionHead"><div><p className="eyebrow">BOOTH INVENTORY</p><h2>Live counts</h2></div><button>Close & reconcile booth</button></div>
+      <div className="sectionHead">
+        <div><p className="eyebrow">BOOTH INVENTORY</p><h2>Live counts</h2></div>
+        {canReconcile && <button>Close & reconcile booth</button>}
+      </div>
       <section className="inventory">
         {flavors.map(([name, left, start], index) => (
           <article className={Number(left) <= 8 ? "warning" : ""} key={String(name)}>
@@ -98,7 +244,7 @@ export function Dashboard({
       <header>
         <div className="brand">COOKIE BOOTH <b>COMMAND CENTER</b></div>
         <nav>
-          <button>Reports</button>
+          {permissions.canViewReports && <button>Reports</button>}
           {mayOpenAccessCenter && (
             <button onClick={() => setView("people")}>
               {role === "admin" ? "People & roles" : "Invitations"}
@@ -109,25 +255,64 @@ export function Dashboard({
         </nav>
       </header>
       <section className="welcome">
-        <div><p className="eyebrow">TROOP OPERATIONS · ADULT VOLUNTEERS ONLY</p><h1>Good morning, {firstName}.</h1><p>Two booths are live. Inventory is healthy, with three low-stock alerts requiring attention.</p></div>
-        <button className="primary">＋ Create booth</button>
-      </section>
-      <section className="stats">
-        <article><span>Live booths</span><strong>{totals.active}</strong><small>of 4 scheduled</small></article>
-        <article><span>Boxes sold</span><strong>{totals.boxes}</strong><small>across all locations</small></article>
-        <article><span>Gross sales</span><strong>${totals.revenue.toLocaleString()}</strong><small>before reconciliation</small></article>
-        <article><span>Inventory alerts</span><strong>3</strong><small>across 2 booths</small></article>
-      </section>
-      <div className="toolbar"><div><p className="eyebrow">BOOTH DIRECTORY</p><h2>Select a booth to operate</h2></div><span className="permissionNote">Access is enforced by your assigned role</span></div>
-      <section className="booths">
-        {booths.map((booth) => (
-          <button className="booth" key={booth.id} onClick={() => setSelected(booth)}>
-            <div><span className={`pill ${booth.status}`}>{booth.status}</span><h3>{booth.name}</h3><p>{booth.address}</p><small>{booth.window}</small></div>
-            <dl><div><dt>Lead</dt><dd>{booth.lead}</dd></div><div><dt>Boxes</dt><dd>{booth.boxes}</dd></div><div><dt>Sales</dt><dd>${booth.revenue.toLocaleString()}</dd></div></dl>
-            <footer>{booth.status === "live" ? "Open command center" : booth.status === "scheduled" ? "Review setup" : "View reconciliation"} <b>→</b></footer>
+        <div>
+          <p className="eyebrow">TROOP OPERATIONS · ADULT VOLUNTEERS ONLY</p>
+          <h1>Good morning, {firstName}.</h1>
+          <p>
+            {booths.length
+              ? `${totals.active} booth${totals.active === 1 ? " is" : "s are"} live within your authorized scope.`
+              : "Your authorized booth directory is ready."}
+          </p>
+        </div>
+        {permissions.canCreateBooths && (
+          <button className="primary" onClick={() => setShowCreate((current) => !current)}>
+            {showCreate ? "Cancel" : "＋ Create booth"}
           </button>
-        ))}
+        )}
       </section>
+      {error && <div className="alert errorAlert" role="alert">{error}</div>}
+      {showCreate && permissions.canCreateBooths && (
+        <section className="peoplePanel createBoothPanel">
+          <div className="panelHeading">
+            <div><p className="eyebrow">ADMINISTRATOR ACTION</p><h2>Schedule a booth</h2></div>
+          </div>
+          <form className="boothForm" onSubmit={(event) => void createBooth(event)}>
+            <label>Name<input required maxLength={120} value={boothDraft.name} onChange={(event) => setBoothDraft({ ...boothDraft, name: event.target.value })} /></label>
+            <label>Location<input required maxLength={240} value={boothDraft.address} onChange={(event) => setBoothDraft({ ...boothDraft, address: event.target.value })} /></label>
+            <label>Starts<input required type="datetime-local" value={boothDraft.startsAt} onChange={(event) => setBoothDraft({ ...boothDraft, startsAt: event.target.value })} /></label>
+            <label>Ends<input required type="datetime-local" value={boothDraft.endsAt} onChange={(event) => setBoothDraft({ ...boothDraft, endsAt: event.target.value })} /></label>
+            <button className="primary" disabled={creating}>{creating ? "Creating…" : "Create booth"}</button>
+          </form>
+        </section>
+      )}
+      <section className="stats">
+        <article><span>Live booths</span><strong>{totals.active}</strong><small>within your scope</small></article>
+        <article><span>Boxes sold</span><strong>{totals.boxes}</strong><small>authorized locations</small></article>
+        <article><span>Gross sales</span><strong>${totals.revenue.toLocaleString()}</strong><small>before reconciliation</small></article>
+        <article><span>Inventory alerts</span><strong>{totals.alerts}</strong><small>authorized booths</small></article>
+      </section>
+      <div className="toolbar">
+        <div><p className="eyebrow">BOOTH DIRECTORY</p><h2>{role === "admin" || role === "auditor" ? "Organization booths" : "Your assigned booths"}</h2></div>
+        <span className="permissionNote">Server-enforced access</span>
+      </div>
+      {loading ? (
+        <div className="emptyBooths">Loading authorized booths…</div>
+      ) : booths.length ? (
+        <section className="booths">
+          {booths.map((booth) => (
+            <button className="booth" key={booth.id} onClick={() => setSelected(booth)}>
+              <div><span className={`pill ${booth.status}`}>{booth.status}</span><h3>{booth.name}</h3><p>{booth.address}</p><small>{formatWindow(booth)}</small></div>
+              <dl><div><dt>Lead</dt><dd>{booth.lead || "Not assigned"}</dd></div><div><dt>Boxes</dt><dd>{booth.boxes}</dd></div><div><dt>Sales</dt><dd>${Number(booth.revenue).toLocaleString()}</dd></div></dl>
+              <footer>{booth.status === "live" && canOperate ? "Open command center" : "View booth"} <b>→</b></footer>
+            </button>
+          ))}
+        </section>
+      ) : (
+        <section className="emptyBooths">
+          <h3>{permissions.assignmentRequired ? "No booths are assigned to you yet." : "No booths have been created yet."}</h3>
+          <p>{permissions.assignmentRequired ? "Ask an administrator to assign your account to a booth." : "Create the first booth to begin scheduling and assigning adult operators."}</p>
+        </section>
+      )}
       <aside><b>Privacy boundary</b><span>This system tracks adult operators, booth inventory, and transactions. Scout identities and individual sale-credit allocation are intentionally out of scope.</span></aside>
     </main>
   );

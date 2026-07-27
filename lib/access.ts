@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../db";
-import { memberships, users } from "../db/schema";
+import { assignments, booths, memberships, users } from "../db/schema";
 
 export type OrganizationRole = "admin" | "lead" | "volunteer" | "auditor";
 export type MembershipStatus = "pending" | "active" | "suspended";
@@ -79,6 +79,81 @@ export async function requireInvitationManager(organizationId: number) {
     return {
       error: Response.json(
         { error: "Invitation permission is required" },
+        { status: 403 },
+      ),
+      access: null,
+    };
+  }
+  return { error: null, access };
+}
+
+export type BoothAccess = OrganizationAccess & {
+  boothId: number;
+  assignmentRole: "lead" | "volunteer" | "auditor" | null;
+  canOperate: boolean;
+  canManage: boolean;
+  canReconcile: boolean;
+  canViewReports: boolean;
+};
+
+export async function getBoothAccess(boothId: number): Promise<BoothAccess | null> {
+  const [booth] = await getDb()
+    .select({ id: booths.id, organizationId: booths.organizationId })
+    .from(booths)
+    .where(eq(booths.id, boothId))
+    .limit(1);
+  if (!booth) return null;
+
+  const access = await getOrganizationAccess(booth.organizationId);
+  if (!access) return null;
+
+  let assignmentRole: BoothAccess["assignmentRole"] = null;
+  if (access.role === "lead" || access.role === "volunteer") {
+    const [assignment] = await getDb()
+      .select({ role: assignments.role })
+      .from(assignments)
+      .where(
+        and(
+          eq(assignments.boothId, boothId),
+          eq(assignments.userId, access.userId),
+        ),
+      )
+      .limit(1);
+    if (!assignment) return null;
+    assignmentRole = assignment.role;
+  }
+
+  return {
+    ...access,
+    boothId,
+    assignmentRole,
+    canOperate:
+      access.role === "admin" ||
+      access.role === "lead" ||
+      access.role === "volunteer",
+    canManage: access.role === "admin",
+    canReconcile: access.role === "admin" || access.role === "lead",
+    canViewReports: access.role === "admin" || access.role === "auditor",
+  };
+}
+
+export async function requireBoothAccess(
+  boothId: number,
+  permission: "view" | "operate" | "manage" | "reconcile" | "reports" = "view",
+) {
+  const access = await getBoothAccess(boothId);
+  const permitted =
+    Boolean(access) &&
+    (permission === "view" ||
+      (permission === "operate" && access?.canOperate) ||
+      (permission === "manage" && access?.canManage) ||
+      (permission === "reconcile" && access?.canReconcile) ||
+      (permission === "reports" && access?.canViewReports));
+
+  if (!access || !permitted) {
+    return {
+      error: Response.json(
+        { error: "You do not have access to this booth" },
         { status: 403 },
       ),
       access: null,

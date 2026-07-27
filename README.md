@@ -48,6 +48,12 @@ Milestone 3 organization-access deliverables add:
 - Pending membership creation and automatic webhook activation after signup
 - Resend and cancellation controls for pending invitations
 - Retained invitation history and append-only invitation audit entries
+- D1-backed booth directory with administrator-only booth creation
+- Organization-wide visibility for administrators and read-only auditors
+- Explicit booth assignments for leads and volunteers
+- Server-side booth authorization helpers and protected booth endpoints
+- Role-aware navigation and operational controls
+- Audited booth assignment and removal actions
 
 Apply all D1 migrations before deploying source that depends on them:
 
@@ -63,12 +69,11 @@ store child information or allocate sales credit to individual scouts.
 
 ## Roadmap
 
-1. Booth-scoped permission policies on every API
-2. Booth, product, and inventory administration
-3. Atomic scanner transactions and idempotency
-4. Real-time booth synchronization
-5. Opening and closing workflows
-6. Cross-location reporting and automatic exports
+1. Product and inventory administration
+2. Atomic scanner transactions and idempotency
+3. Real-time booth synchronization
+4. Opening and closing workflows
+5. Cross-location reporting and automatic exports
 
 ## Development
 

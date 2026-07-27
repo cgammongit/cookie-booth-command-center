@@ -3,6 +3,8 @@ import { z } from "zod";
 import { getDb } from "../../../../db";
 import {
   accessAuditLog,
+  assignments,
+  booths,
   memberships,
   users,
 } from "../../../../db/schema";
@@ -59,9 +61,32 @@ export async function GET(request: Request) {
     .orderBy(desc(accessAuditLog.createdAt))
     .limit(25);
 
+  const organizationBooths = await db
+    .select({
+      id: booths.id,
+      name: booths.name,
+      startsAt: booths.startsAt,
+      status: booths.status,
+    })
+    .from(booths)
+    .where(eq(booths.organizationId, organizationId))
+    .orderBy(asc(booths.startsAt), asc(booths.name));
+
+  const boothAssignments = await db
+    .select({
+      boothId: assignments.boothId,
+      userId: assignments.userId,
+      role: assignments.role,
+    })
+    .from(assignments)
+    .innerJoin(booths, eq(booths.id, assignments.boothId))
+    .where(eq(booths.organizationId, organizationId));
+
   return Response.json({
     people,
     audit,
+    booths: organizationBooths,
+    assignments: boothAssignments,
     invitations: await listOrganizationInvitations(organizationId),
     currentUserId: authorization.access.userId,
   });
