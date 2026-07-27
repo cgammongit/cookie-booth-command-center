@@ -89,6 +89,8 @@ export async function requireInvitationManager(organizationId: number) {
 
 export type BoothAccess = OrganizationAccess & {
   boothId: number;
+  archived: boolean;
+  closed: boolean;
   assignmentRole: "lead" | "volunteer" | "auditor" | null;
   canOperate: boolean;
   canManage: boolean;
@@ -98,7 +100,12 @@ export type BoothAccess = OrganizationAccess & {
 
 export async function getBoothAccess(boothId: number): Promise<BoothAccess | null> {
   const [booth] = await getDb()
-    .select({ id: booths.id, organizationId: booths.organizationId })
+    .select({
+      id: booths.id,
+      organizationId: booths.organizationId,
+      status: booths.status,
+      archivedAt: booths.archivedAt,
+    })
     .from(booths)
     .where(eq(booths.id, boothId))
     .limit(1);
@@ -126,13 +133,23 @@ export async function getBoothAccess(boothId: number): Promise<BoothAccess | nul
   return {
     ...access,
     boothId,
+    archived: Boolean(booth.archivedAt),
+    closed: booth.status === "closed",
     assignmentRole,
     canOperate:
-      access.role === "admin" ||
-      access.role === "lead" ||
-      access.role === "volunteer",
-    canManage: access.role === "admin",
-    canReconcile: access.role === "admin" || access.role === "lead",
+      !booth.archivedAt &&
+      booth.status !== "closed" &&
+      (access.role === "admin" ||
+        access.role === "lead" ||
+        access.role === "volunteer"),
+    canManage:
+      !booth.archivedAt &&
+      booth.status !== "closed" &&
+      access.role === "admin",
+    canReconcile:
+      !booth.archivedAt &&
+      booth.status !== "closed" &&
+      (access.role === "admin" || access.role === "lead"),
     canViewReports: access.role === "admin" || access.role === "auditor",
   };
 }

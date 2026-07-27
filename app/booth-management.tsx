@@ -62,6 +62,7 @@ export function BoothManagement({
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState("");
+  const [archiveReason, setArchiveReason] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -204,6 +205,43 @@ export function BoothManagement({
     }
   }
 
+  async function archiveSelected() {
+    if (!selected || archiveReason.trim().length < 5) {
+      setError("Enter an archive reason of at least 5 characters.");
+      return;
+    }
+    if (!window.confirm(
+      `Archive ${selected.name}? It will leave active operations but retain all history.`,
+    )) return;
+    setSaving(`archive:${selected.id}`);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/admin/booths/${selected.id}/archive`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ organizationId, reason: archiveReason.trim() }),
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        alertCreated?: boolean;
+      };
+      if (!response.ok) throw new Error(payload.error || "Unable to archive booth");
+      setNotice(
+        payload.alertCreated
+          ? `${selected.name} was archived and an activity alert was created.`
+          : `${selected.name} was archived.`,
+      );
+      setSelectedId(null);
+      setArchiveReason("");
+      await load();
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : "Unable to archive booth");
+    } finally {
+      setSaving("");
+    }
+  }
+
   return (
     <main>
       <header>
@@ -334,6 +372,27 @@ export function BoothManagement({
                 {!eligiblePeople.length && (
                   <div className="loadingState">No active operators match your search.</div>
                 )}
+              </div>
+              <div className="archiveBoothControl">
+                <p className="eyebrow">BOOTH LIFECYCLE</p>
+                <strong>Manually archive this booth</strong>
+                <small>
+                  Its history will be retained. Any recorded inventory or transaction
+                  activity creates an administrator alert.
+                </small>
+                <textarea
+                  maxLength={500}
+                  value={archiveReason}
+                  placeholder="Required archive reason"
+                  onChange={(event) => setArchiveReason(event.target.value)}
+                />
+                <button
+                  className="dangerButton"
+                  disabled={saving === `archive:${selected.id}`}
+                  onClick={() => void archiveSelected()}
+                >
+                  {saving === `archive:${selected.id}` ? "Archiving…" : "Archive booth"}
+                </button>
               </div>
             </>
           )}

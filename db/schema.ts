@@ -34,6 +34,36 @@ export const accessAuditLog=sqliteTable("access_audit_log",{
  index("access_audit_organization_created").on(t.organizationId,t.createdAt),
  index("access_audit_target_membership").on(t.targetMembershipId),
 ]);
+export const boothLifecycleAudit=sqliteTable("booth_lifecycle_audit",{
+ id:integer("id").primaryKey({autoIncrement:true}),
+ organizationId:integer("organization_id").notNull(),
+ boothId:integer("booth_id").notNull(),
+ actorUserId:integer("actor_user_id").notNull(),
+ action:text("action",{enum:["manually_archived","alert_acknowledged","alert_muted","alert_unmuted","alert_flagged","alert_resolved"]}).notNull(),
+ detailsJson:text("details_json").notNull(),
+ createdAt:text("created_at").notNull(),
+},t=>[
+ index("booth_lifecycle_audit_org_created").on(t.organizationId,t.createdAt),
+ index("booth_lifecycle_audit_booth").on(t.boothId),
+]);
+export const adminAlerts=sqliteTable("admin_alerts",{
+ id:integer("id").primaryKey({autoIncrement:true}),
+ organizationId:integer("organization_id").notNull(),
+ boothId:integer("booth_id").notNull(),
+ type:text("type",{enum:["manual_archive_with_activity"]}).notNull(),
+ status:text("status",{enum:["open","acknowledged","review","resolved"]}).notNull().default("open"),
+ muted:integer("muted",{mode:"boolean"}).notNull().default(false),
+ acknowledgedByUserId:integer("acknowledged_by_user_id"),
+ acknowledgedAt:text("acknowledged_at"),
+ mutedByUserId:integer("muted_by_user_id"),
+ mutedAt:text("muted_at"),
+ resolutionNote:text("resolution_note"),
+ createdAt:text("created_at").notNull(),
+ updatedAt:text("updated_at").notNull(),
+},t=>[
+ index("admin_alert_org_status_created").on(t.organizationId,t.status,t.createdAt),
+ index("admin_alert_booth").on(t.boothId),
+]);
 export const organizationInvitations=sqliteTable("organization_invitations",{
  id:integer("id").primaryKey({autoIncrement:true}),
  organizationId:integer("organization_id").notNull(),
@@ -65,9 +95,14 @@ export const booths=sqliteTable("booths",{
  startsAt:text("starts_at").notNull(),
  endsAt:text("ends_at").notNull(),
  status:text("status",{enum:["draft","scheduled","live","closed"]}).notNull().default("draft"),
+ archivedAt:text("archived_at"),
+ archivedByUserId:integer("archived_by_user_id"),
+ archiveReason:text("archive_reason"),
+ archiveKind:text("archive_kind",{enum:["manual"]}),
 },t=>[
  index("booth_organization_status_start").on(t.organizationId,t.status,t.startsAt),
  index("booth_google_place").on(t.googlePlaceId),
+ index("booth_organization_archived").on(t.organizationId,t.archivedAt),
 ]);
 export const assignments=sqliteTable("assignments",{
  id:integer("id").primaryKey({autoIncrement:true}),

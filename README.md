@@ -58,12 +58,23 @@ Milestone 3 organization-access deliverables add:
 - Google Places location selection with manual-address fallback
 - Stored Google Place IDs and coordinates for stable location identity
 - One-tap Google Maps directions for authorized booth users
+- Retained booth archives instead of destructive deletion
+- Separate views for naturally closed and manually archived booths
+- Activity-aware administrator alerts when a booth is manually archived
+- Acknowledgement, review, mute, and resolution controls with lifecycle audit history
 
 Apply all D1 migrations before deploying source that depends on them:
 
 ```bash
 npx wrangler d1 migrations apply cookie-booth-command-center-db --remote
 ```
+
+For the archived-booth lifecycle release, apply
+`0006_archived_booth_lifecycle.sql` before deploying or merging the source
+that reads its new columns and tables. Manually archiving a booth removes it
+from active operations but retains its inventory, transactions, assignments,
+and reconciliation history. Naturally closed booths remain separately
+identified in the archive.
 
 Google Places autocomplete is optional and activates when
 `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is configured in the protected hosting
