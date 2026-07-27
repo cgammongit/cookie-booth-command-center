@@ -97,7 +97,7 @@ export function GooglePlaceField({
         element.includedRegionCodes = ["us"];
         element.locationBias = {
           center: { lat: 36.5951, lng: -82.1887 },
-          radius: 80_000,
+          radius: 50_000,
         };
         element.addEventListener("gmp-select", async (rawEvent: Event) => {
           const event = rawEvent as PlaceSelectEvent;
