@@ -11,6 +11,10 @@ const createSchema = z
     organizationId: z.number().int().positive(),
     name: z.string().trim().min(2).max(120),
     address: z.string().trim().min(2).max(240),
+    locationName: z.string().trim().max(160).nullable().optional(),
+    googlePlaceId: z.string().trim().max(240).nullable().optional(),
+    latitude: z.number().min(-90).max(90).nullable().optional(),
+    longitude: z.number().min(-180).max(180).nullable().optional(),
     startsAt: z.string().datetime(),
     endsAt: z.string().datetime(),
   })
@@ -23,6 +27,10 @@ type BoothRow = {
   id: number;
   name: string;
   address: string;
+  locationName: string | null;
+  googlePlaceId: string | null;
+  latitude: number | null;
+  longitude: number | null;
   startsAt: string;
   endsAt: string;
   status: "draft" | "scheduled" | "live" | "closed";
@@ -51,6 +59,10 @@ export async function GET(request: Request) {
       b.id,
       b.name,
       b.address,
+      b.location_name AS locationName,
+      b.google_place_id AS googlePlaceId,
+      b.latitude,
+      b.longitude,
       b.starts_at AS startsAt,
       b.ends_at AS endsAt,
       b.status,
@@ -116,13 +128,18 @@ export async function POST(request: Request) {
 
   const result = await env.DB.prepare(`
     INSERT INTO booths (
-      organization_id, name, address, starts_at, ends_at, status
-    ) VALUES (?, ?, ?, ?, ?, 'scheduled')
+      organization_id, name, address, location_name, google_place_id,
+      latitude, longitude, starts_at, ends_at, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')
   `)
     .bind(
       parsed.data.organizationId,
       parsed.data.name,
       parsed.data.address,
+      parsed.data.locationName || null,
+      parsed.data.googlePlaceId || null,
+      parsed.data.latitude ?? null,
+      parsed.data.longitude ?? null,
       parsed.data.startsAt,
       parsed.data.endsAt,
     )

@@ -53,7 +53,22 @@ export const organizationInvitations=sqliteTable("organization_invitations",{
  index("organization_invitation_email_status").on(t.email,t.status),
  index("organization_invitation_membership").on(t.membershipId),
 ]);
-export const booths=sqliteTable("booths",{id:integer("id").primaryKey({autoIncrement:true}),organizationId:integer("organization_id").notNull(),name:text("name").notNull(),address:text("address").notNull(),startsAt:text("starts_at").notNull(),endsAt:text("ends_at").notNull(),status:text("status",{enum:["draft","scheduled","live","closed"]}).notNull().default("draft")});
+export const booths=sqliteTable("booths",{
+ id:integer("id").primaryKey({autoIncrement:true}),
+ organizationId:integer("organization_id").notNull(),
+ name:text("name").notNull(),
+ address:text("address").notNull(),
+ locationName:text("location_name"),
+ googlePlaceId:text("google_place_id"),
+ latitude:real("latitude"),
+ longitude:real("longitude"),
+ startsAt:text("starts_at").notNull(),
+ endsAt:text("ends_at").notNull(),
+ status:text("status",{enum:["draft","scheduled","live","closed"]}).notNull().default("draft"),
+},t=>[
+ index("booth_organization_status_start").on(t.organizationId,t.status,t.startsAt),
+ index("booth_google_place").on(t.googlePlaceId),
+]);
 export const assignments=sqliteTable("assignments",{
  id:integer("id").primaryKey({autoIncrement:true}),
  boothId:integer("booth_id").notNull(),

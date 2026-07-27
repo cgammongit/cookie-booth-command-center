@@ -16,6 +16,8 @@ export async function GET(
 
   const booth = await env.DB.prepare(`
     SELECT id, organization_id AS organizationId, name, address,
+      location_name AS locationName, google_place_id AS googlePlaceId,
+      latitude, longitude,
       starts_at AS startsAt, ends_at AS endsAt, status
     FROM booths WHERE id = ?
   `).bind(boothId).first();

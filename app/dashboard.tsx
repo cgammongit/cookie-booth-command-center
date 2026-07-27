@@ -2,12 +2,18 @@
 
 import { UserButton } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { BoothManagement } from "./booth-management";
+import { GooglePlaceField, type SelectedPlace } from "./google-place-field";
 import { PeopleRoles } from "./people-roles";
 
 type Booth = {
   id: number;
   name: string;
   address: string;
+  locationName: string | null;
+  googlePlaceId: string | null;
+  latitude: number | null;
+  longitude: number | null;
   startsAt: string;
   endsAt: string;
   status: "draft" | "scheduled" | "live" | "closed";
@@ -63,12 +69,14 @@ export function Dashboard({
   canInviteUsers,
   organizationId,
   organizationName,
+  googleMapsApiKey,
 }: {
   displayName: string;
   role: string;
   canInviteUsers: boolean;
   organizationId: number;
   organizationName: string;
+  googleMapsApiKey: string;
 }) {
   const [booths, setBooths] = useState<Booth[]>([]);
   const [permissions, setPermissions] = useState<BoothPermissions>({
@@ -77,7 +85,7 @@ export function Dashboard({
     assignmentRequired: false,
   });
   const [selected, setSelected] = useState<Booth | null>(null);
-  const [view, setView] = useState<"dashboard" | "people">("dashboard");
+  const [view, setView] = useState<"dashboard" | "people" | "booths">("dashboard");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
@@ -86,6 +94,10 @@ export function Dashboard({
   const [boothDraft, setBoothDraft] = useState({
     name: "",
     address: "",
+    locationName: "",
+    googlePlaceId: "",
+    latitude: null as number | null,
+    longitude: null as number | null,
     startsAt: toLocalDateTimeInput(new Date(now.getTime() + 86_400_000)),
     endsAt: toLocalDateTimeInput(new Date(now.getTime() + 90_000_000)),
   });
@@ -144,6 +156,9 @@ export function Dashboard({
   const mayOpenAccessCenter = role === "admin" || (role === "lead" && canInviteUsers);
   const canOperate = role !== "auditor";
   const canReconcile = role === "admin" || role === "lead";
+  const handlePlaceSelected = useCallback((place: SelectedPlace) => {
+    setBoothDraft((current) => ({ ...current, ...place }));
+  }, []);
 
   async function createBooth(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -157,6 +172,10 @@ export function Dashboard({
           organizationId,
           name: boothDraft.name,
           address: boothDraft.address,
+          locationName: boothDraft.locationName || null,
+          googlePlaceId: boothDraft.googlePlaceId || null,
+          latitude: boothDraft.latitude,
+          longitude: boothDraft.longitude,
           startsAt: new Date(boothDraft.startsAt).toISOString(),
           endsAt: new Date(boothDraft.endsAt).toISOString(),
         }),
@@ -164,7 +183,15 @@ export function Dashboard({
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(payload.error || "Unable to create booth");
       setShowCreate(false);
-      setBoothDraft((current) => ({ ...current, name: "", address: "" }));
+      setBoothDraft((current) => ({
+        ...current,
+        name: "",
+        address: "",
+        locationName: "",
+        googlePlaceId: "",
+        latitude: null,
+        longitude: null,
+      }));
       await loadBooths();
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Unable to create booth");
@@ -187,6 +214,24 @@ export function Dashboard({
     );
   }
 
+  if (view === "booths" && role === "admin") {
+    return (
+      <BoothManagement
+        organizationId={organizationId}
+        organizationName={organizationName}
+        onBack={() => {
+          setView("dashboard");
+          setShowCreate(false);
+          void loadBooths();
+        }}
+        onCreate={() => {
+          setView("dashboard");
+          setShowCreate(true);
+        }}
+      />
+    );
+  }
+
   if (selected) return (
     <main>
       <header>
@@ -198,12 +243,28 @@ export function Dashboard({
         <div>
           <p className="eyebrow">{selected.status.toUpperCase()} BOOTH · {formatWindow(selected)}</p>
           <h1>{selected.name}</h1>
-          <p>{selected.address} · Lead: {selected.lead || "Not assigned"}</p>
+          <p>
+            {selected.locationName || selected.address} · Lead: {selected.lead || "Not assigned"}
+          </p>
         </div>
         <div className={selected.status === "live" ? "live" : "permissionNote"}>
           {selected.status === "live" ? "● Live and syncing" : selected.status}
         </div>
       </section>
+      <div className="boothLocationActions">
+        <div>
+          <strong>{selected.address}</strong>
+          {selected.googlePlaceId && <small>Verified Google location</small>}
+        </div>
+        <a
+          className="directionsButton"
+          href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selected.address)}${selected.googlePlaceId ? `&destination_place_id=${encodeURIComponent(selected.googlePlaceId)}` : ""}`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Get GPS directions ↗
+        </a>
+      </div>
       {canOperate && selected.status === "live" ? (
         <section className="scan">
           <label>SCAN COOKIE BARCODE</label>
@@ -245,6 +306,9 @@ export function Dashboard({
         <div className="brand">COOKIE BOOTH <b>COMMAND CENTER</b></div>
         <nav>
           {permissions.canViewReports && <button>Reports</button>}
+          {role === "admin" && (
+            <button onClick={() => setView("booths")}>Booth management</button>
+          )}
           {mayOpenAccessCenter && (
             <button onClick={() => setView("people")}>
               {role === "admin" ? "People & roles" : "Invitations"}
@@ -278,7 +342,24 @@ export function Dashboard({
           </div>
           <form className="boothForm" onSubmit={(event) => void createBooth(event)}>
             <label>Name<input required maxLength={120} value={boothDraft.name} onChange={(event) => setBoothDraft({ ...boothDraft, name: event.target.value })} /></label>
-            <label>Location<input required maxLength={240} value={boothDraft.address} onChange={(event) => setBoothDraft({ ...boothDraft, address: event.target.value })} /></label>
+            <label className="placeLabel">
+              Location
+              <GooglePlaceField
+                apiKey={googleMapsApiKey}
+                value={boothDraft.address}
+                onManualChange={(address) =>
+                  setBoothDraft((current) => ({
+                    ...current,
+                    address,
+                    locationName: "",
+                    googlePlaceId: "",
+                    latitude: null,
+                    longitude: null,
+                  }))
+                }
+                onPlaceSelected={handlePlaceSelected}
+              />
+            </label>
             <label>Starts<input required type="datetime-local" value={boothDraft.startsAt} onChange={(event) => setBoothDraft({ ...boothDraft, startsAt: event.target.value })} /></label>
             <label>Ends<input required type="datetime-local" value={boothDraft.endsAt} onChange={(event) => setBoothDraft({ ...boothDraft, endsAt: event.target.value })} /></label>
             <button className="primary" disabled={creating}>{creating ? "Creating…" : "Create booth"}</button>
@@ -301,7 +382,7 @@ export function Dashboard({
         <section className="booths">
           {booths.map((booth) => (
             <button className="booth" key={booth.id} onClick={() => setSelected(booth)}>
-              <div><span className={`pill ${booth.status}`}>{booth.status}</span><h3>{booth.name}</h3><p>{booth.address}</p><small>{formatWindow(booth)}</small></div>
+              <div><span className={`pill ${booth.status}`}>{booth.status}</span><h3>{booth.name}</h3><p>{booth.locationName || booth.address}</p><small>{formatWindow(booth)}</small></div>
               <dl><div><dt>Lead</dt><dd>{booth.lead || "Not assigned"}</dd></div><div><dt>Boxes</dt><dd>{booth.boxes}</dd></div><div><dt>Sales</dt><dd>${Number(booth.revenue).toLocaleString()}</dd></div></dl>
               <footer>{booth.status === "live" && canOperate ? "Open command center" : "View booth"} <b>→</b></footer>
             </button>
