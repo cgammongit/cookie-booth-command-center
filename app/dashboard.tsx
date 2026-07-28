@@ -49,6 +49,15 @@ type BoothInventoryItem = {
   remaining: number;
 };
 
+type PaymentTotals = {
+  cash: number;
+  creditCard: number;
+  venmoPaypal: number;
+  gross: number;
+};
+
+type SaleStep = "items" | "payment" | null;
+
 function formatWindow(booth: Booth) {
   const start = new Date(booth.startsAt);
   const end = new Date(booth.endsAt);
@@ -94,6 +103,15 @@ export function Dashboard({
   });
   const [selected, setSelected] = useState<Booth | null>(null);
   const [selectedInventory, setSelectedInventory] = useState<BoothInventoryItem[]>([]);
+  const [paymentTotals, setPaymentTotals] = useState<PaymentTotals>({
+    cash: 0,
+    creditCard: 0,
+    venmoPaypal: 0,
+    gross: 0,
+  });
+  const [saleStep, setSaleStep] = useState<SaleStep>(null);
+  const [saleQuantities, setSaleQuantities] = useState<Record<number, number>>({});
+  const [saleSubmitting, setSaleSubmitting] = useState(false);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryBoothId, setInventoryBoothId] = useState<number | null>(null);
   const [view, setView] = useState<
@@ -180,10 +198,19 @@ export function Dashboard({
       .then(async (response) => {
         const payload = await response.json() as {
           inventory?: BoothInventoryItem[];
+          paymentTotals?: PaymentTotals;
           error?: string;
         };
         if (!response.ok) throw new Error(payload.error || "Unable to load booth inventory");
-        if (active) setSelectedInventory(payload.inventory || []);
+        if (active) {
+          setSelectedInventory(payload.inventory || []);
+          setPaymentTotals(payload.paymentTotals || {
+            cash: 0,
+            creditCard: 0,
+            venmoPaypal: 0,
+            gross: 0,
+          });
+        }
       })
       .catch((loadError: unknown) => {
         if (active) {
@@ -197,6 +224,82 @@ export function Dashboard({
       active = false;
     };
   }, [selected]);
+
+  const saleItems = useMemo(() => selectedInventory
+    .map((product) => ({
+      ...product,
+      quantity: saleQuantities[product.productId] || 0,
+    }))
+    .filter((product) => product.quantity > 0), [saleQuantities, selectedInventory]);
+  const saleBoxCount = saleItems.reduce((sum, item) => sum + item.quantity, 0);
+  const saleTotal = saleItems.reduce((sum, item) => sum + item.quantity * Number(item.price), 0);
+
+  function openSale() {
+    setSaleQuantities({});
+    setError("");
+    setSaleStep("items");
+  }
+
+  function changeSaleQuantity(product: BoothInventoryItem, delta: number) {
+    setSaleQuantities((current) => {
+      const next = Math.max(
+        0,
+        Math.min(Number(product.remaining), (current[product.productId] || 0) + delta),
+      );
+      return { ...current, [product.productId]: next };
+    });
+  }
+
+  async function finishSale(paymentMethod: "cash" | "credit_card" | "venmo_paypal") {
+    if (!selected || !saleItems.length) return;
+    setSaleSubmitting(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/booths/${selected.id}/sales`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          paymentMethod,
+          items: saleItems.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+          })),
+        }),
+      });
+      const payload = await response.json() as {
+        sale?: { boxCount: number; totalAmount: number };
+        error?: string;
+      };
+      if (!response.ok || !payload.sale) {
+        throw new Error(payload.error || "Unable to finish sale");
+      }
+      setSelectedInventory((current) => current.map((product) => {
+        const sold = saleQuantities[product.productId] || 0;
+        return sold
+          ? { ...product, sold: Number(product.sold) + sold, remaining: Number(product.remaining) - sold }
+          : product;
+      }));
+      setPaymentTotals((current) => ({
+        ...current,
+        cash: current.cash + (paymentMethod === "cash" ? payload.sale!.totalAmount : 0),
+        creditCard: current.creditCard + (paymentMethod === "credit_card" ? payload.sale!.totalAmount : 0),
+        venmoPaypal: current.venmoPaypal + (paymentMethod === "venmo_paypal" ? payload.sale!.totalAmount : 0),
+        gross: current.gross + payload.sale!.totalAmount,
+      }));
+      setSelected((current) => current ? {
+        ...current,
+        boxes: Number(current.boxes) + payload.sale!.boxCount,
+        revenue: Number(current.revenue) + payload.sale!.totalAmount,
+      } : current);
+      setSaleStep(null);
+      setSaleQuantities({});
+      void loadBooths();
+    } catch (saleError) {
+      setError(saleError instanceof Error ? saleError.message : "Unable to finish sale");
+    } finally {
+      setSaleSubmitting(false);
+    }
+  }
 
   async function createBooth(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -349,9 +452,10 @@ export function Dashboard({
       </div>
       {canOperate && selected.status === "live" ? (
         <section className="scan">
-          <label>SCAN COOKIE BARCODE</label>
-          <div><input autoFocus placeholder="Scanner ready…" /><button>Record sale</button></div>
-          <small>Transaction persistence is the next protected API deliverable.</small>
+          <div className="saleLaunch">
+            <div><label>BOOTH SALES</label><small>Select products, quantities, and the customer&apos;s payment method.</small></div>
+            <button className="primary" onClick={openSale}>＋ New Sale</button>
+          </div>
         </section>
       ) : (
         <div className="alert policyAlert">
@@ -362,9 +466,14 @@ export function Dashboard({
       )}
       <section className="stats">
         <article><span>Boxes sold</span><strong>{selected.boxes}</strong></article>
-        <article><span>Gross sales</span><strong>${Number(selected.revenue).toLocaleString()}</strong></article>
+        <article><span>Gross sales</span><strong>${Number(paymentTotals.gross).toLocaleString()}</strong></article>
         <article><span>Low inventory</span><strong>{selected.low}</strong></article>
         <article><span>Access mode</span><strong className="accessMode">{role === "auditor" ? "Read" : "Operate"}</strong></article>
+      </section>
+      <section className="paymentStats" aria-label="Sales by payment method">
+        <article><span>Cash to turn in</span><strong>${Number(paymentTotals.cash).toFixed(2)}</strong></article>
+        <article><span>Credit card</span><strong>${Number(paymentTotals.creditCard).toFixed(2)}</strong></article>
+        <article><span>Venmo / PayPal</span><strong>${Number(paymentTotals.venmoPaypal).toFixed(2)}</strong></article>
       </section>
       <div className="sectionHead">
         <div><p className="eyebrow">BOOTH INVENTORY</p><h2>Live counts</h2></div>
@@ -395,6 +504,60 @@ export function Dashboard({
         )}
         {inventoryLoading && <div className="loadingState">Loading live inventory…</div>}
       </section>
+      {saleStep && (
+        <div className="modalBackdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !saleSubmitting) setSaleStep(null);
+        }}>
+          <section className="saleDialog" role="dialog" aria-modal="true" aria-labelledby="sale-title">
+            <div className="saleDialogHeader">
+              <div>
+                <p className="eyebrow">{saleStep === "items" ? "NEW TRANSACTION" : "CONFIRM TRANSACTION"}</p>
+                <h2 id="sale-title">{saleStep === "items" ? "New Sale" : "Finish Sale"}</h2>
+              </div>
+              <button className="iconButton" aria-label="Close sale" disabled={saleSubmitting} onClick={() => setSaleStep(null)}>×</button>
+            </div>
+            {saleStep === "items" ? (
+              <>
+                <div className="saleProductList">
+                  {selectedInventory.filter((product) => Number(product.remaining) > 0).map((product) => (
+                    <article key={product.productId}>
+                      <div><strong>{product.name}</strong><small>${Number(product.price).toFixed(2)} · {product.remaining} available</small></div>
+                      <div className="quantityPicker">
+                        <button aria-label={`Remove one ${product.name}`} disabled={!saleQuantities[product.productId]} onClick={() => changeSaleQuantity(product, -1)}>−</button>
+                        <output aria-live="polite">{saleQuantities[product.productId] || 0}</output>
+                        <button aria-label={`Add one ${product.name}`} disabled={(saleQuantities[product.productId] || 0) >= Number(product.remaining)} onClick={() => changeSaleQuantity(product, 1)}>＋</button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                <div className="saleDialogFooter">
+                  <div><span>{saleBoxCount} boxes</span><strong>${saleTotal.toFixed(2)}</strong></div>
+                  <button className="primary" disabled={!saleBoxCount} onClick={() => setSaleStep("payment")}>Finish Sale</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="saleSummary">
+                  {saleItems.map((item) => (
+                    <div key={item.productId}><span>{item.quantity} × {item.name}</span><strong>${(item.quantity * Number(item.price)).toFixed(2)}</strong></div>
+                  ))}
+                  <div className="saleSummaryTotal"><span>{saleBoxCount} boxes total</span><strong>${saleTotal.toFixed(2)}</strong></div>
+                </div>
+                <p className="paymentPrompt">How did the customer pay?</p>
+                <div className="paymentButtons">
+                  <button disabled={saleSubmitting} onClick={() => void finishSale("cash")}>Cash</button>
+                  <button disabled={saleSubmitting} onClick={() => void finishSale("credit_card")}>Credit Card</button>
+                  <button disabled={saleSubmitting} onClick={() => void finishSale("venmo_paypal")}>Venmo/PayPal</button>
+                </div>
+                <div className="saleDialogFooter">
+                  <button disabled={saleSubmitting} onClick={() => setSaleStep("items")}>← Edit quantities</button>
+                  {saleSubmitting && <span>Recording sale…</span>}
+                </div>
+              </>
+            )}
+          </section>
+        </div>
+      )}
     </main>
   );
 
