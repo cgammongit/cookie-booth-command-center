@@ -14,6 +14,15 @@ type ArchivedBooth = {
   archiveReason: string | null;
   archiveKind: "manual" | null;
   archivedBy: string | null;
+  closedAt: string | null;
+  cashTurnedIn: number | null;
+  expectedCash: number | null;
+  cashDiscrepancy: number | null;
+  creditCardTotal: number | null;
+  venmoPaypalTotal: number | null;
+  returnedBoxCount: number | null;
+  inventoryDiscrepancy: number | null;
+  reconciliationNotes: string | null;
   boxes: number;
   revenue: number;
   transactionCount: number;
@@ -259,14 +268,28 @@ export function ArchivedBooths({
                     <div><dt>Booth window</dt><dd>{formatDate(booth.startsAt)}</dd></div>
                     <div><dt>Boxes</dt><dd>{Number(booth.boxes)}</dd></div>
                     <div><dt>Sales</dt><dd>${Number(booth.revenue).toLocaleString()}</dd></div>
+                    {!manual && booth.closedAt && (
+                      <>
+                        <div><dt>Cash turned in</dt><dd>${Number(booth.cashTurnedIn || 0).toFixed(2)}</dd></div>
+                        <div><dt>Digital sales</dt><dd>${(Number(booth.creditCardTotal || 0) + Number(booth.venmoPaypalTotal || 0)).toFixed(2)}</dd></div>
+                        <div><dt>Boxes returned</dt><dd>{Number(booth.returnedBoxCount || 0)}</dd></div>
+                      </>
+                    )}
                   </dl>
                   <footer>
                     <span>
                       {manual
                         ? `Archived ${formatDate(booth.archivedAt)} by ${booth.archivedBy || "an administrator"}`
-                        : `Closed ${formatDate(booth.endsAt)}`}
+                        : `Closed ${formatDate(booth.closedAt || booth.endsAt)}`}
                     </span>
                     {booth.archiveReason && <span>Reason: {booth.archiveReason}</span>}
+                    {!manual && Number(booth.cashDiscrepancy || 0) !== 0 && (
+                      <span>Cash difference: ${Number(booth.cashDiscrepancy).toFixed(2)}</span>
+                    )}
+                    {!manual && Number(booth.inventoryDiscrepancy || 0) !== 0 && (
+                      <span>Inventory difference: {Number(booth.inventoryDiscrepancy)}</span>
+                    )}
+                    {booth.reconciliationNotes && <span>Reconciliation: {booth.reconciliationNotes}</span>}
                   </footer>
                 </article>
               );
