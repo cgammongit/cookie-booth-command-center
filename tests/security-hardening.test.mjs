@@ -81,7 +81,7 @@ test("booth policies isolate organizations and enforce volunteer, lead, and admi
   assert.equal(evaluateBoothPermission({ ...admin, archived: true }, "manage"), false);
 });
 
-test("mutation and WebSocket routes retain server authorization and tenant-scoped SQL", async () => {
+test("supplemental source assertions retain server authorization and tenant-scoped SQL", async () => {
   const files = {
     inventory: "../app/api/admin/booth-inventory/route.ts",
     troopInventory: "../app/api/admin/troop-inventory/route.ts",

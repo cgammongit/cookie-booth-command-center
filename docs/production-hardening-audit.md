@@ -11,7 +11,7 @@ Method: read-only source, lockfile, production-response-header, CORS preflight, 
 Status as of the Phase 5A feature branch:
 
 - **Implemented:** patched compatible Next.js, React, React Server DOM, Vite, Cloudflare Vite plugin, Wrangler, Workers Types, PostCSS, Sharp, and related transitive releases; the original 13 High advisories were reduced substantially without a major-version downgrade/upgrade.
-- **Implemented:** a centralized, pure authorization policy with executable role and cross-organization tests, plus route-contract coverage for sales, inventory, reconciliation, invitations, and WebSockets. Existing server-side database authorization remains authoritative.
+- **Implemented:** a centralized, pure authorization policy plus executable integration tests that invoke the actual API handlers and `lib/access.ts` boundary with authenticated cross-organization identities. Coverage includes booth reads/WebSockets, booth and troop inventory, sales, reconciliation, invitations, and administrator/lead/volunteer/auditor restrictions. Source-contract assertions remain supplemental. Existing server-side database authorization remains authoritative.
 - **Implemented:** per-request UUID correlation, structured JSON Worker logs, route normalization, error categories, bounded primitive context, and default redaction of authorization, cookies, Clerk fields, email/PII, credentials, request bodies, payloads, signatures, and notes.
 - **Implemented:** CSP in Report-Only mode, frame denial, Referrer-Policy, Permissions-Policy, `nosniff`, one-day staged HSTS, and response request IDs.
 - **Implemented, deliberately non-disruptive:** unsafe application API requests with a supplied cross-origin `Origin` are rejected. Missing-Origin requests continue to follow Clerk authentication and server authorization; Clerk webhooks remain signature-protected and exempt.
@@ -107,7 +107,7 @@ Cloudflare supports Workers Logs, automatic traces for bindings/handlers, metric
 
 #### H5. Security and tenant-isolation tests are missing
 
-**Phase 5A status: partially implemented.** Executable policy and route-contract tests now cover the named high-value surfaces. Full D1-backed integration tests with Clerk test identities remain a later phase.
+**Phase 5A status: substantially implemented.** Executable tests invoke the actual route handlers and access layer against an in-memory D1/Clerk boundary for the named high-value surfaces, including negative cross-tenant cases and positive/negative role progression. Full end-to-end tests against isolated real Clerk and D1 development resources remain a later phase.
 
 The only test entry point is `tests/rendered-html.test.mjs`, and `npm test` rebuilds before making rendered/source assertions. It does not execute authenticated API routes against D1 or Clerk test identities.
 

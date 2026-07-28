@@ -3,7 +3,7 @@
 ## Implemented controls
 
 - Compatible security updates for the production framework and Cloudflare toolchain.
-- Pure authorization policies used by production access checks and executable role/tenant tests.
+- Pure authorization policies used by production access checks, plus executable integration tests that call actual API and WebSocket handlers through `lib/access.ts` with authenticated in-memory Clerk/D1 identities.
 - Worker-generated UUID request IDs, returned as `x-request-id`.
 - Structured JSON completion, rejection, and failure events suitable for Workers Logs.
 - Conservative logging allowlist/redaction: no headers or bodies are logged; sensitive key names and non-primitive values are redacted.
@@ -85,3 +85,17 @@ If sign-in, assets, API mutations, image optimization, or synchronization regres
 6. Revert the Phase 5A commit and rebuild from the prior lockfile if dependency behavior is the cause.
 
 Rollback does not undo any production data because Phase 5A performs no schema or data migration.
+
+## Authorization integration harness
+
+`tests/authorization-routes.integration.test.mjs` invokes the actual route exports for booth reads and WebSocket connection, booth inventory, troop inventory, sales, reconciliation, and invitations. The normal `lib/access.ts` implementation and Drizzle query construction run unchanged. The Node-only loader supplies deterministic Clerk authentication and an in-memory D1 statement boundary; it records whether a request reaches business queries or Durable Object lookup.
+
+The suite proves authenticated organization-1 identities receive 403 before any business query or room lookup when targeting organization 2. It also verifies:
+
+- assigned volunteers can reach sales and booth WebSocket boundaries but cannot reconcile, administer inventory, or manage invitations;
+- unassigned volunteers cannot connect to a booth;
+- leads can sell/reconcile, delegated leads can view their invitation scope, and leads cannot administer inventory or invite administrators;
+- auditors can use the read-only booth connection but cannot sell or reconcile;
+- administrators reach same-organization inventory, sales, reconciliation, invitation, and WebSocket business boundaries.
+
+The source-structure checks remain supplemental guardrails. The harness does not replace later end-to-end testing against isolated real Clerk and D1 development resources.
