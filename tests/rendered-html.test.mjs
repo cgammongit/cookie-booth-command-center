@@ -91,3 +91,29 @@ test("booth lifecycle derives live and pending-closure sales windows", async () 
   assert.match(dashboard, /30_000/);
   assert.match(dashboard, /selected\.status === "pending_closure"/);
 });
+
+test("booth reconciliation returns stock, separates payment totals, and closes manually", async () => {
+  const [route, migration, dashboard] = await Promise.all([
+    readFile(
+      new URL("../app/api/booths/[boothId]/reconciliation/route.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../drizzle/0011_booth_reconciliation.sql", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../app/dashboard.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(route, /getEffectiveBoothStatus\(booth\) !== "pending_closure"/);
+  assert.match(route, /Explain cash or inventory discrepancies before closing the booth/);
+  assert.match(route, /available = available \+ \?/);
+  assert.match(route, /SET adjusted = sold - opening/);
+  assert.match(route, /'booth_return'/);
+  assert.match(route, /UPDATE booths SET status = 'closed'/);
+  assert.match(route, /credit_card_total/);
+  assert.match(route, /venmo_paypal_total/);
+  assert.match(migration, /CREATE TABLE `reconciliation_items`/);
+  assert.match(dashboard, /Close booth & return inventory/);
+  assert.match(dashboard, /selected\.status === "pending_closure"/);
+});
