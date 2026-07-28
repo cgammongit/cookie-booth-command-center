@@ -1,13 +1,14 @@
 "use client";
 
 import { UserButton } from "@clerk/nextjs";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ArchivedBooths } from "./archived-booths";
 import { BoothManagement } from "./booth-management";
 import { GooglePlaceField, type SelectedPlace } from "./google-place-field";
 import { InventoryManagement } from "./inventory-management";
 import { PeopleRoles } from "./people-roles";
 import { TroopInventory } from "./troop-inventory";
+import { useActivePolling } from "./use-active-polling";
 import type { BoothLifecycleStatus } from "../lib/booth-status";
 
 type Booth = {
@@ -127,6 +128,8 @@ export function Dashboard({
   >("dashboard");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [boothSyncWarning, setBoothSyncWarning] = useState("");
+  const [detailSyncWarning, setDetailSyncWarning] = useState("");
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const now = useMemo(() => new Date(), []);
@@ -141,12 +144,11 @@ export function Dashboard({
     endsAt: toLocalDateTimeInput(new Date(now.getTime() + 90_000_000)),
   });
 
-  const loadBooths = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const loadBooths = useCallback(async (signal: AbortSignal) => {
     try {
       const response = await fetch(`/api/booths?organizationId=${organizationId}`, {
         cache: "no-store",
+        signal,
       });
       const payload = (await response.json()) as BoothResponse;
       if (!response.ok) throw new Error(payload.error || "Unable to load booths");
@@ -156,45 +158,22 @@ export function Dashboard({
         return payload.booths.find((booth) => booth.id === current.id) || current;
       });
       setPermissions(payload.permissions);
+      setBoothSyncWarning("");
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to load booths");
+      if (signal.aborted) return;
+      setBoothSyncWarning(
+        loadError instanceof Error
+          ? `Live synchronization paused: ${loadError.message}`
+          : "Live synchronization is temporarily unavailable.",
+      );
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   }, [organizationId]);
 
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      void loadBooths();
-    }, 30_000);
-    return () => window.clearInterval(interval);
-  }, [loadBooths]);
-
-  useEffect(() => {
-    let active = true;
-    void fetch(`/api/booths?organizationId=${organizationId}`, {
-      cache: "no-store",
-    })
-      .then(async (response) => {
-        const payload = (await response.json()) as BoothResponse;
-        if (!response.ok) throw new Error(payload.error || "Unable to load booths");
-        if (active) {
-          setBooths(payload.booths);
-          setPermissions(payload.permissions);
-        }
-      })
-      .catch((loadError: unknown) => {
-        if (active) {
-          setError(loadError instanceof Error ? loadError.message : "Unable to load booths");
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [organizationId]);
+  const refreshBooths = useActivePolling(loadBooths, {
+    enabled: view === "dashboard",
+  });
 
   const totals = useMemo(() => ({
     active: booths.filter((booth) => booth.status === "live").length,
@@ -213,39 +192,50 @@ export function Dashboard({
     setBoothDraft((current) => ({ ...current, ...place }));
   }, []);
 
-  useEffect(() => {
-    if (!selected) return;
-    let active = true;
-    void fetch(`/api/booths/${selected.id}`, { cache: "no-store" })
-      .then(async (response) => {
-        const payload = await response.json() as {
-          inventory?: BoothInventoryItem[];
-          paymentTotals?: PaymentTotals;
-          error?: string;
-        };
-        if (!response.ok) throw new Error(payload.error || "Unable to load booth inventory");
-        if (active) {
-          setSelectedInventory(payload.inventory || []);
-          setPaymentTotals(payload.paymentTotals || {
-            cash: 0,
-            creditCard: 0,
-            venmoPaypal: 0,
-            gross: 0,
-          });
-        }
-      })
-      .catch((loadError: unknown) => {
-        if (active) {
-          setError(loadError instanceof Error ? loadError.message : "Unable to load booth inventory");
-        }
-      })
-      .finally(() => {
-        if (active) setInventoryLoading(false);
+  const selectedBoothId = selected?.id;
+  const loadSelectedBooth = useCallback(async (signal: AbortSignal) => {
+    if (!selectedBoothId) return;
+    try {
+      const response = await fetch(`/api/booths/${selectedBoothId}`, {
+        cache: "no-store",
+        signal,
       });
-    return () => {
-      active = false;
-    };
-  }, [selected]);
+      const payload = await response.json() as {
+        booth?: Partial<Booth> & { id: number };
+        inventory?: BoothInventoryItem[];
+        paymentTotals?: PaymentTotals;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(payload.error || "Unable to load booth inventory");
+      if (payload.booth) {
+        setSelected((current) => current?.id === payload.booth?.id
+          ? { ...current, ...payload.booth } as Booth
+          : current);
+      }
+      setSelectedInventory(payload.inventory || []);
+      setPaymentTotals(payload.paymentTotals || {
+        cash: 0,
+        creditCard: 0,
+        venmoPaypal: 0,
+        gross: 0,
+      });
+      setInventoryLoading(false);
+      setDetailSyncWarning("");
+    } catch (loadError) {
+      if (signal.aborted) return;
+      setInventoryLoading(false);
+      setDetailSyncWarning(
+        loadError instanceof Error
+          ? `Live synchronization paused: ${loadError.message}`
+          : "Live synchronization is temporarily unavailable.",
+      );
+    }
+  }, [selectedBoothId]);
+
+  const refreshSelectedBooth = useActivePolling(loadSelectedBooth, {
+    enabled: view === "dashboard" && Boolean(selectedBoothId),
+  });
+  const syncWarning = detailSyncWarning || boothSyncWarning;
 
   const saleItems = useMemo(() => selectedInventory
     .map((product) => ({
@@ -326,7 +316,7 @@ export function Dashboard({
       } : current);
       setSaleStep(null);
       setSaleQuantities({});
-      void loadBooths();
+      void Promise.all([refreshBooths(), refreshSelectedBooth()]);
     } catch (saleError) {
       setError(saleError instanceof Error ? saleError.message : "Unable to finish sale");
     } finally {
@@ -372,7 +362,7 @@ export function Dashboard({
       setReconciliation(null);
       setSelected(null);
       setSelectedInventory([]);
-      await loadBooths();
+      await refreshBooths();
     } catch (reconciliationError) {
       setError(
         reconciliationError instanceof Error
@@ -416,7 +406,7 @@ export function Dashboard({
         latitude: null,
         longitude: null,
       }));
-      await loadBooths();
+      await refreshBooths();
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Unable to create booth");
     } finally {
@@ -432,7 +422,7 @@ export function Dashboard({
         canManagePeople={role === "admin"}
         onBack={() => {
           setView("dashboard");
-          void loadBooths();
+          void refreshBooths();
         }}
       />
     );
@@ -447,7 +437,7 @@ export function Dashboard({
           setInventoryBoothId(null);
           setView("dashboard");
           setShowCreate(false);
-          void loadBooths();
+          void refreshBooths();
         }}
         onCreate={() => {
           setView("dashboard");
@@ -464,7 +454,7 @@ export function Dashboard({
         organizationName={organizationName}
         onBack={() => {
           setView("dashboard");
-          void loadBooths();
+          void refreshBooths();
         }}
       />
     );
@@ -478,7 +468,7 @@ export function Dashboard({
         initialBoothId={inventoryBoothId}
         onBack={() => {
           setView("dashboard");
-          void loadBooths();
+          void refreshBooths();
         }}
       />
     );
@@ -491,7 +481,7 @@ export function Dashboard({
         organizationName={organizationName}
         onBack={() => {
           setView("dashboard");
-          void loadBooths();
+          void refreshBooths();
         }}
       />
     );
@@ -523,6 +513,7 @@ export function Dashboard({
               : selected.status}
         </div>
       </section>
+      {syncWarning && <div className="alert policyAlert" role="status">{syncWarning} Showing the last successfully synchronized data.</div>}
       <div className="boothLocationActions">
         <div>
           <strong>{selected.address}</strong>
@@ -830,6 +821,7 @@ export function Dashboard({
         )}
       </section>
       {error && <div className="alert errorAlert" role="alert">{error}</div>}
+      {syncWarning && <div className="alert policyAlert" role="status">{syncWarning} Showing the last successfully synchronized data.</div>}
       {showCreate && permissions.canCreateBooths && (
         <section className="peoplePanel createBoothPanel">
           <div className="panelHeading">
