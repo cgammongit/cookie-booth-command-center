@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { getOrganizationAccess, requireOrganizationAdmin } from "../../../lib/access";
+import { getEffectiveBoothStatus, type BoothLifecycleStatus } from "../../../lib/booth-status";
 
 const querySchema = z.object({
   organizationId: z.coerce.number().int().positive(),
@@ -33,7 +34,7 @@ type BoothRow = {
   longitude: number | null;
   startsAt: string;
   endsAt: string;
-  status: "draft" | "scheduled" | "live" | "closed";
+  status: BoothLifecycleStatus;
   boxes: number;
   revenue: number;
   low: number;
@@ -101,7 +102,10 @@ export async function GET(request: Request) {
     .all<BoothRow>();
 
   return Response.json({
-    booths: result.results,
+    booths: result.results.map((booth) => ({
+      ...booth,
+      status: getEffectiveBoothStatus(booth),
+    })),
     permissions: {
       canCreateBooths: access.role === "admin",
       canViewReports: access.role === "admin" || access.role === "auditor",

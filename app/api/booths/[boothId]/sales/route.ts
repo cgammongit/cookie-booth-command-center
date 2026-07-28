@@ -1,6 +1,10 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { requireBoothAccess } from "../../../../../lib/access";
+import {
+  canRecordBoothSales,
+  getEffectiveBoothStatus,
+} from "../../../../../lib/booth-status";
 
 const saleSchema = z.object({
   paymentMethod: z.enum(["cash", "credit_card", "venmo_paypal"]),
@@ -32,11 +36,19 @@ export async function POST(
   if (authorization.error) return authorization.error;
 
   const booth = await env.DB.prepare(`
-    SELECT status, archived_at AS archivedAt FROM booths WHERE id = ?
-  `).bind(boothId).first<{ status: string; archivedAt: string | null }>();
-  if (!booth || booth.archivedAt || booth.status !== "live") {
+    SELECT status, starts_at AS startsAt, ends_at AS endsAt,
+      archived_at AS archivedAt
+    FROM booths WHERE id = ?
+  `).bind(boothId).first<{
+    status: string;
+    startsAt: string;
+    endsAt: string;
+    archivedAt: string | null;
+  }>();
+  const effectiveStatus = booth ? getEffectiveBoothStatus(booth) : null;
+  if (!booth || booth.archivedAt || !effectiveStatus || !canRecordBoothSales(effectiveStatus)) {
     return Response.json(
-      { error: "Sales can be recorded only while this booth is live" },
+      { error: "Sales can be recorded only while this booth is live or pending closure" },
       { status: 409 },
     );
   }

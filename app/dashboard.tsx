@@ -8,6 +8,7 @@ import { GooglePlaceField, type SelectedPlace } from "./google-place-field";
 import { InventoryManagement } from "./inventory-management";
 import { PeopleRoles } from "./people-roles";
 import { TroopInventory } from "./troop-inventory";
+import type { BoothLifecycleStatus } from "../lib/booth-status";
 
 type Booth = {
   id: number;
@@ -19,7 +20,7 @@ type Booth = {
   longitude: number | null;
   startsAt: string;
   endsAt: string;
-  status: "draft" | "scheduled" | "live" | "closed";
+  status: BoothLifecycleStatus;
   lead: string | null;
   boxes: number;
   revenue: number;
@@ -143,6 +144,10 @@ export function Dashboard({
       const payload = (await response.json()) as BoothResponse;
       if (!response.ok) throw new Error(payload.error || "Unable to load booths");
       setBooths(payload.booths);
+      setSelected((current) => {
+        if (!current) return current;
+        return payload.booths.find((booth) => booth.id === current.id) || current;
+      });
       setPermissions(payload.permissions);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load booths");
@@ -150,6 +155,13 @@ export function Dashboard({
       setLoading(false);
     }
   }, [organizationId]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void loadBooths();
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, [loadBooths]);
 
   useEffect(() => {
     let active = true;
@@ -187,6 +199,9 @@ export function Dashboard({
   const mayOpenAccessCenter = role === "admin" || (role === "lead" && canInviteUsers);
   const canOperate = role !== "auditor";
   const canReconcile = role === "admin" || role === "lead";
+  const salesOpen = selected
+    ? selected.status === "live" || selected.status === "pending_closure"
+    : false;
   const handlePlaceSelected = useCallback((place: SelectedPlace) => {
     setBoothDraft((current) => ({ ...current, ...place }));
   }, []);
@@ -432,8 +447,12 @@ export function Dashboard({
             {selected.locationName || selected.address} · Lead: {selected.lead || "Not assigned"}
           </p>
         </div>
-        <div className={selected.status === "live" ? "live" : "permissionNote"}>
-          {selected.status === "live" ? "● Live and syncing" : selected.status}
+        <div className={salesOpen ? "live" : "permissionNote"}>
+          {selected.status === "live"
+            ? "● Live and syncing"
+            : selected.status === "pending_closure"
+              ? "Pending Closure"
+              : selected.status}
         </div>
       </section>
       <div className="boothLocationActions">
@@ -450,7 +469,7 @@ export function Dashboard({
           Get GPS directions ↗
         </a>
       </div>
-      {canOperate && selected.status === "live" ? (
+      {canOperate && salesOpen ? (
         <section className="scan">
           <div className="saleLaunch">
             <div><label>BOOTH SALES</label><small>Select products, quantities, and the customer&apos;s payment method.</small></div>
@@ -461,7 +480,7 @@ export function Dashboard({
         <div className="alert policyAlert">
           {role === "auditor"
             ? "Read-only audit access: booth operations are disabled."
-            : "Sales can be recorded only while this booth is live."}
+            : "Sales can be recorded only while this booth is live or pending closure."}
         </div>
       )}
       <section className="stats">

@@ -70,3 +70,24 @@ test("booth sales are server-priced, payment-separated, and inventory-protected"
   assert.match(route, /movement_type[\s\S]*'booth_sale'/);
   assert.doesNotMatch(migration, /CREATE TRIGGER/);
 });
+
+test("booth lifecycle derives live and pending-closure sales windows", async () => {
+  const [lifecycle, boothRoute, saleRoute, dashboard] = await Promise.all([
+    readFile(new URL("../lib/booth-status.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/booths/route.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/api/booths/[boothId]/sales/route.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../app/dashboard.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(lifecycle, /if \(now < startsAt\) return "scheduled"/);
+  assert.match(lifecycle, /if \(now <= endsAt\) return "live"/);
+  assert.match(lifecycle, /return "pending_closure"/);
+  assert.match(lifecycle, /status === "live" \|\| status === "pending_closure"/);
+  assert.match(boothRoute, /getEffectiveBoothStatus\(booth\)/);
+  assert.match(saleRoute, /canRecordBoothSales\(effectiveStatus\)/);
+  assert.match(dashboard, /30_000/);
+  assert.match(dashboard, /selected\.status === "pending_closure"/);
+});
