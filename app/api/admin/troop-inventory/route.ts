@@ -37,12 +37,11 @@ export async function GET(request: Request) {
   const authorization = await requireOrganizationAdmin(parsed.data.organizationId);
   if (authorization.error) return authorization.error;
 
-  const [balances, movements] = await Promise.all([
+  const [balances, boothAllocations, movements] = await Promise.all([
     env.DB.prepare(`
       SELECT p.id AS productId, p.name, p.barcode, p.active,
         COALESCE(b.total_remaining, 0) AS totalRemaining,
         COALESCE(b.available, 0) AS available,
-        COALESCE(b.total_remaining - b.available, 0) AS atBooths,
         COALESCE((
           SELECT SUM(-l.total_delta) FROM inventory_ledger l
           WHERE l.organization_id = p.organization_id
@@ -54,6 +53,17 @@ export async function GET(request: Request) {
         ON b.organization_id = p.organization_id AND b.product_id = p.id
       WHERE p.organization_id = ?
       ORDER BY p.active DESC, p.name
+    `).bind(parsed.data.organizationId).all(),
+    env.DB.prepare(`
+      SELECT i.product_id AS productId, b.id AS boothId, b.name AS boothName,
+        (i.opening + i.adjusted - i.sold) AS quantity
+      FROM inventory i
+      JOIN booths b ON b.id = i.booth_id
+      WHERE b.organization_id = ?
+        AND b.status != 'closed'
+        AND b.archived_at IS NULL
+        AND (i.opening + i.adjusted - i.sold) > 0
+      ORDER BY b.name, b.id
     `).bind(parsed.data.organizationId).all(),
     env.DB.prepare(`
       SELECT l.id, l.product_id AS productId, p.name AS productName,
@@ -71,7 +81,32 @@ export async function GET(request: Request) {
     `).bind(parsed.data.organizationId).all(),
   ]);
 
-  return Response.json({ balances: balances.results, movements: movements.results });
+  const allocationsByProduct = new Map<number, Array<{
+    boothId: number;
+    boothName: string;
+    quantity: number;
+  }>>();
+  for (const row of boothAllocations.results) {
+    const productId = Number(row.productId);
+    const allocations = allocationsByProduct.get(productId) || [];
+    allocations.push({
+      boothId: Number(row.boothId),
+      boothName: String(row.boothName),
+      quantity: Number(row.quantity),
+    });
+    allocationsByProduct.set(productId, allocations);
+  }
+
+  const balancesWithBooths = balances.results.map((balance) => {
+    const boothBreakdown = allocationsByProduct.get(Number(balance.productId)) || [];
+    return {
+      ...balance,
+      atBooths: boothBreakdown.reduce((total, booth) => total + booth.quantity, 0),
+      boothBreakdown,
+    };
+  });
+
+  return Response.json({ balances: balancesWithBooths, movements: movements.results });
 }
 
 export async function POST(request: Request) {

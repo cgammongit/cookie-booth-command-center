@@ -20,7 +20,7 @@ hosting="${SITES_PROJECT_ROOT}/dist/.openai/hosting.json"
 }
 
 node \
-  --experimental-loader "${script_dir}/cloudflare-node-loader.mjs" \
+  --experimental-loader "./scripts/cloudflare-node-loader.mjs" \
   --input-type=module - "${worker}" "${hosting}" <<'NODE'
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
