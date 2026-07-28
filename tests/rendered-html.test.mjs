@@ -64,7 +64,9 @@ test("booth sales are server-priced, payment-separated, and inventory-protected"
   assert.match(route, /paymentMethod: z\.enum\(\["cash", "credit_card", "venmo_paypal"\]\)/);
   assert.match(route, /totalAmount \+= quantity \* Number\(product\.price\)/);
   assert.match(route, /UPDATE inventory SET sold = sold \+ \?/);
+  assert.match(route, /\(opening \+ adjusted - sold\) >= \?/);
   assert.match(route, /UPDATE troop_inventory_balances[\s\S]*total_remaining = total_remaining - \?/);
+  assert.match(route, /total_remaining >= \?/);
   assert.match(route, /movement_type[\s\S]*'booth_sale'/);
-  assert.match(migration, /CREATE TRIGGER `inventory_prevent_oversell`/);
+  assert.doesNotMatch(migration, /CREATE TRIGGER/);
 });
