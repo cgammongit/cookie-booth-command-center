@@ -14,7 +14,7 @@ export async function GET(
   const authorization = await requireBoothAccess(boothId);
   if (authorization.error) return authorization.error;
 
-  const [booth, inventory] = await Promise.all([
+  const [booth, inventory, paymentTotals] = await Promise.all([
     env.DB.prepare(`
     SELECT id, organization_id AS organizationId, name, address,
       location_name AS locationName, google_place_id AS googlePlaceId,
@@ -31,11 +31,21 @@ export async function GET(
       WHERE i.booth_id = ?
       ORDER BY p.name
     `).bind(boothId).all(),
+    env.DB.prepare(`
+      SELECT
+        COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN total_amount ELSE 0 END), 0) AS cash,
+        COALESCE(SUM(CASE WHEN payment_method = 'credit_card' THEN total_amount ELSE 0 END), 0) AS creditCard,
+        COALESCE(SUM(CASE WHEN payment_method = 'venmo_paypal' THEN total_amount ELSE 0 END), 0) AS venmoPaypal,
+        COALESCE(SUM(total_amount), 0) AS gross
+      FROM sales
+      WHERE booth_id = ?
+    `).bind(boothId).first(),
   ]);
 
   return Response.json({
     booth,
     inventory: inventory.results,
+    paymentTotals,
     permissions: {
       canOperate: authorization.access.canOperate,
       canManage: authorization.access.canManage,
