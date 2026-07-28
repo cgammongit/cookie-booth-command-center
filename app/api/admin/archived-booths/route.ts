@@ -25,6 +25,15 @@ export async function GET(request: Request) {
         b.archived_at AS archivedAt, b.archive_reason AS archiveReason,
         b.archive_kind AS archiveKind,
         actor.display_name AS archivedBy,
+        r.closed_at AS closedAt,
+        r.cash_total AS cashTurnedIn,
+        r.expected_cash_total AS expectedCash,
+        r.cash_discrepancy AS cashDiscrepancy,
+        r.credit_card_total AS creditCardTotal,
+        r.venmo_paypal_total AS venmoPaypalTotal,
+        r.actual_box_count AS returnedBoxCount,
+        r.inventory_discrepancy_count AS inventoryDiscrepancy,
+        r.notes AS reconciliationNotes,
         COALESCE((
           SELECT SUM(CASE WHEN t.type = 'sale' THEN t.quantity ELSE 0 END)
           FROM transactions t WHERE t.booth_id = b.id
@@ -37,6 +46,7 @@ export async function GET(request: Request) {
         (SELECT COUNT(*) FROM reconciliations r WHERE r.booth_id = b.id) AS reconciliationCount
       FROM booths b
       LEFT JOIN users actor ON actor.id = b.archived_by_user_id
+      LEFT JOIN reconciliations r ON r.booth_id = b.id
       WHERE b.organization_id = ?
         AND (b.status = 'closed' OR b.archived_at IS NOT NULL)
       ORDER BY COALESCE(b.archived_at, b.ends_at) DESC, b.name
