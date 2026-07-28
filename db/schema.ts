@@ -138,7 +138,19 @@ export const inventoryConfigurationAudit=sqliteTable("inventory_configuration_au
  index("inventory_configuration_audit_org_created").on(t.organizationId,t.createdAt),
  index("inventory_configuration_audit_booth").on(t.boothId),
 ]);
-export const transactions=sqliteTable("transactions",{id:text("id").primaryKey(),boothId:integer("booth_id").notNull(),productId:integer("product_id").notNull(),operatorId:integer("operator_id").notNull(),type:text("type",{enum:["sale","correction","adjustment"]}).notNull(),quantity:integer("quantity").notNull(),amount:real("amount").notNull(),reason:text("reason"),createdAt:text("created_at").notNull()});
+export const sales=sqliteTable("sales",{
+ id:text("id").primaryKey(),
+ boothId:integer("booth_id").notNull(),
+ operatorId:integer("operator_id").notNull(),
+ paymentMethod:text("payment_method",{enum:["cash","credit_card","venmo_paypal"]}).notNull(),
+ boxCount:integer("box_count").notNull(),
+ totalAmount:real("total_amount").notNull(),
+ createdAt:text("created_at").notNull(),
+},t=>[
+ index("sales_booth_created").on(t.boothId,t.createdAt),
+ index("sales_booth_payment").on(t.boothId,t.paymentMethod),
+]);
+export const transactions=sqliteTable("transactions",{id:text("id").primaryKey(),saleId:text("sale_id"),boothId:integer("booth_id").notNull(),productId:integer("product_id").notNull(),operatorId:integer("operator_id").notNull(),type:text("type",{enum:["sale","correction","adjustment"]}).notNull(),quantity:integer("quantity").notNull(),amount:real("amount").notNull(),reason:text("reason"),createdAt:text("created_at").notNull()},t=>[index("transactions_sale").on(t.saleId)]);
 export const reconciliations=sqliteTable("reconciliations",{id:integer("id").primaryKey({autoIncrement:true}),boothId:integer("booth_id").notNull().unique(),closedBy:integer("closed_by").notNull(),cashTotal:real("cash_total").notNull(),digitalTotal:real("digital_total").notNull(),notes:text("notes"),closedAt:text("closed_at").notNull()});
 
 export const productCatalogAudit=sqliteTable("product_catalog_audit",{
@@ -172,7 +184,7 @@ export const inventoryLedger=sqliteTable("inventory_ledger",{
  productId:integer("product_id").notNull(),
  boothId:integer("booth_id"),
  actorUserId:integer("actor_user_id"),
- movementType:text("movement_type",{enum:["initial_order","replenishment","booth_allocation","booth_return","trade_in","trade_out","council_return","damage","loss","correction_in","correction_out","legacy_migration"]}).notNull(),
+ movementType:text("movement_type",{enum:["initial_order","replenishment","booth_allocation","booth_return","booth_sale","trade_in","trade_out","council_return","damage","loss","correction_in","correction_out","legacy_migration"]}).notNull(),
  totalDelta:integer("total_delta").notNull().default(0),
  availableDelta:integer("available_delta").notNull().default(0),
  boothDelta:integer("booth_delta").notNull().default(0),
