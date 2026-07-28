@@ -10,6 +10,11 @@ type Balance = {
   totalRemaining: number;
   available: number;
   atBooths: number;
+  boothBreakdown: {
+    boothId: number;
+    boothName: string;
+    quantity: number;
+  }[];
   removed: number;
 };
 
@@ -150,7 +155,7 @@ export function TroopInventory({
       <section className="stats">
         <article><span>Total remaining</span><strong>{totals.total}</strong><small>owned by troop</small></article>
         <article><span>Available</span><strong>{totals.available}</strong><small>ready to allocate</small></article>
-        <article><span>At booths</span><strong>{totals.booths}</strong><small>currently allocated</small></article>
+        <article><span>At all booths</span><strong>{totals.booths}</strong><small>currently allocated</small></article>
         <article><span>Removed</span><strong>{totals.removed}</strong><small>trades, returns, loss</small></article>
       </section>
       <section className="peoplePanel troopStockPanel">
@@ -169,8 +174,32 @@ export function TroopInventory({
       <section className="peoplePanel">
         <div className="panelHeading"><div><p className="eyebrow">CURRENT BALANCES</p><h2>Inventory by product</h2></div></div>
         <div className="stockTable">
-          <div className="stockTableHead"><span>Product</span><span>Total</span><span>Available</span><span>At booths</span><span>Removed</span></div>
-          {balances.map((item) => <div key={item.productId} className={item.active ? "" : "inactive"}><span><strong>{item.name}</strong><small>{item.barcode}</small></span><b>{item.totalRemaining}</b><b>{item.available}</b><b>{item.atBooths}</b><b>{item.removed}</b></div>)}
+          <div className="stockTableHead"><span>Product</span><span>Total</span><span>Available</span><span>At all booths</span><span>Removed</span></div>
+          {balances.map((item) => (
+            <div key={item.productId} className={item.active ? "" : "inactive"}>
+              <span><strong>{item.name}</strong><small>{item.barcode}</small></span>
+              <b>{item.totalRemaining}</b>
+              <b>{item.available}</b>
+              <details className="boothAllocationBreakdown">
+                <summary aria-label={`${item.name}: ${item.atBooths} boxes at all booths`}>
+                  {item.atBooths}
+                </summary>
+                {item.boothBreakdown.length ? (
+                  <dl>
+                    {item.boothBreakdown.map((booth) => (
+                      <div key={booth.boothId}>
+                        <dt>{booth.boothName}</dt>
+                        <dd>{booth.quantity}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <small>No inventory at active booths</small>
+                )}
+              </details>
+              <b>{item.removed}</b>
+            </div>
+          ))}
           {!loading && !balances.length && <div className="loadingState">Add products before receiving troop inventory.</div>}
         </div>
       </section>

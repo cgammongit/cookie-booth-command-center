@@ -49,6 +49,25 @@ test("troop inventory removals update an existing nonnegative balance", async ()
   );
 });
 
+test("troop inventory shows expandable active-booth allocation details", async () => {
+  const [route, inventory] = await Promise.all([
+    readFile(
+      new URL("../app/api/admin/troop-inventory/route.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../app/troop-inventory.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(route, /AND b\.status != 'closed'/);
+  assert.match(route, /AND b\.archived_at IS NULL/);
+  assert.match(route, /\(i\.opening \+ i\.adjusted - i\.sold\) AS quantity/);
+  assert.match(route, /atBooths: boothBreakdown\.reduce/);
+  assert.match(inventory, /At all booths/);
+  assert.match(inventory, /<details className="boothAllocationBreakdown">/);
+  assert.match(inventory, /booth\.boothName/);
+  assert.match(inventory, /booth\.quantity/);
+});
+
 test("booth sales are server-priced, payment-separated, and inventory-protected", async () => {
   const [route, migration] = await Promise.all([
     readFile(
