@@ -158,7 +158,10 @@ test("active pages synchronize booth operations and troop inventory without over
   assert.match(dashboard, /setSelectedInventory\(payload\.inventory \|\| \[\]\)/);
   assert.match(dashboard, /setPaymentTotals\(payload\.paymentTotals/);
   assert.match(dashboard, /setSelected\(\(current\)[\s\S]*payload\.booth/);
-  assert.match(dashboard, /Promise\.all\(\[refreshBooths\(\), refreshSelectedBooth\(\)\]\)/);
+  assert.match(
+    dashboard,
+    /Promise\.all\(\[refreshBooths\(true\), refreshSelectedBooth\(true\)\]\)/,
+  );
   assert.match(dashboard, /Showing the last successfully synchronized data/);
   const boothSync = dashboard.slice(
     dashboard.indexOf("const loadSelectedBooth"),
@@ -170,4 +173,187 @@ test("active pages synchronize booth operations and troop inventory without over
   assert.match(troopInventory, /setBalances\(payload\.balances \|\| \[\]\)/);
   assert.match(troopInventory, /setMovements\(payload\.movements \|\| \[\]\)/);
   assert.match(troopInventory, /Showing the last successfully synchronized data/);
+});
+
+test("durable booth rooms serialize rapid events for simultaneous users and isolate organizations", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("durable-room-test", `${process.pid}-${Date.now()}`);
+  const { BoothLiveRoom } = await import(workerUrl.href);
+  assert.equal(typeof BoothLiveRoom, "function");
+
+  const messages = [[], []];
+  const sockets = messages.map((received) => ({
+    send(message) {
+      received.push(JSON.parse(message));
+    },
+    close() {},
+  }));
+  const data = new Map([
+    ["identity", { organizationId: 7, boothId: 42 }],
+    ["revision", 0],
+  ]);
+  let gate = Promise.resolve();
+  const storage = {
+    async get(key) {
+      return data.get(key);
+    },
+    async put(key, value) {
+      data.set(key, value);
+    },
+    async deleteAlarm() {},
+    async setAlarm() {},
+  };
+  const ctx = {
+    storage,
+    blockConcurrencyWhile(callback) {
+      const result = gate.then(callback);
+      gate = result.then(() => undefined, () => undefined);
+      return result;
+    },
+    getWebSockets() {
+      return sockets;
+    },
+    acceptWebSocket() {},
+  };
+  const env = {
+    DB: {
+      prepare() {
+        return {
+          bind() {
+            return {
+              async first() {
+                return {
+                  status: "closed",
+                  startsAt: "2026-01-01T00:00:00.000Z",
+                  endsAt: "2026-01-01T01:00:00.000Z",
+                  archivedAt: null,
+                };
+              },
+            };
+          },
+        };
+      },
+    },
+  };
+  const room = new BoothLiveRoom(ctx, env);
+  await gate;
+
+  const publish = (topics, organizationId = 7, boothId = 42) => room.fetch(
+    new Request("https://booth-live.internal/publish", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-live-organization-id": String(organizationId),
+        "x-live-booth-id": String(boothId),
+      },
+      body: JSON.stringify({ topics }),
+    }),
+  );
+
+  const rapid = await Promise.all([
+    publish(["sales", "inventory", "payments"]),
+    publish(["sales", "inventory", "payments"]),
+    publish(["inventory"]),
+  ]);
+  assert.deepEqual(
+    await Promise.all(rapid.map((response) => response.json())),
+    [{ revision: 1 }, { revision: 2 }, { revision: 3 }],
+  );
+  assert.deepEqual(messages[0].map((event) => event.revision), [1, 2, 3]);
+  assert.deepEqual(messages[1], messages[0]);
+  assert.deepEqual(messages[0][2].topics, ["inventory"]);
+
+  const isolated = await publish(["sales"], 8, 42);
+  assert.equal(isolated.status, 403);
+  assert.equal(messages[0].length, 3);
+
+  const closure = await publish([
+    "inventory",
+    "payments",
+    "lifecycle",
+    "reconciliation",
+    "closure",
+  ]);
+  assert.deepEqual(await closure.json(), { revision: 4 });
+  assert.deepEqual(messages[0][3].topics, [
+    "inventory",
+    "payments",
+    "lifecycle",
+    "reconciliation",
+    "closure",
+  ]);
+});
+
+test("websocket authorization is server-derived and booth-scoped", async () => {
+  const [route, access, room, config] = await Promise.all([
+    readFile(new URL("../app/api/booths/[boothId]/live/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/access.ts", import.meta.url), "utf8"),
+    readFile(new URL("../worker/booth-live-room.ts", import.meta.url), "utf8"),
+    readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(route, /requireBoothAccess\(boothId\)/);
+  assert.match(route, /origin !== requestUrl\.origin/);
+  assert.match(route, /authorization\.access\.organizationId/);
+  assert.match(route, /authorization\.access\.userId/);
+  assert.match(access, /eq\(memberships\.status, "active"\)/);
+  assert.match(access, /eq\(users\.clerkUserId, clerkUserId\)/);
+  assert.match(room, /Room identity does not match/);
+  assert.match(config, /"name": "BOOTH_LIVE_ROOMS"/);
+  assert.match(config, /"new_sqlite_classes": \["BoothLiveRoom"\]/);
+});
+
+test("websocket clients recover missed revisions and retain polling fallback", async () => {
+  const [liveSync, polling, dashboard, troopInventory] = await Promise.all([
+    readFile(new URL("../app/use-booth-live-sync.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/use-active-polling.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/troop-inventory.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(liveSync, /event\.revision !== currentRevision \+ 1/);
+  assert.match(liveSync, /currentRevision !== event\.revision/);
+  assert.match(liveSync, /event\.revision <= currentRevision/);
+  assert.match(liveSync, /MAX_RECONNECT_DELAY_MS = 15_000/);
+  assert.match(liveSync, /document\.visibilityState === "visible"/);
+  assert.match(liveSync, /pendingRevisions\.clear\(\)/);
+  assert.match(liveSync, /while \(active && pendingRevisions\.size\)/);
+  assert.match(liveSync, /revision <= \(requestedRevisions\.get\(boothId\) \|\| 0\)/);
+  assert.match(liveSync, /sockets\.get\(boothId\) !== socket/);
+  assert.match(polling, /intervalMs = 15_000/);
+  assert.match(polling, /\(!enabled && !force\)/);
+  assert.match(dashboard, /!webSocketConnected/);
+  assert.match(dashboard, /refreshSelectedBooth\(true\)/);
+  assert.match(troopInventory, /useBoothLiveSync/);
+
+  const boothSync = dashboard.slice(
+    dashboard.indexOf("const loadSelectedBooth"),
+    dashboard.indexOf("const saleItems"),
+  );
+  assert.doesNotMatch(boothSync, /setSaleStep|setSaleQuantities|setReconciliation/);
+});
+
+test("successful booth mutations broadcast authoritative event topics", async () => {
+  const [sale, inventory, reconciliation, archive] = await Promise.all([
+    readFile(new URL("../app/api/booths/[boothId]/sales/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/admin/booth-inventory/route.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/api/booths/[boothId]/reconciliation/route.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/api/admin/booths/[boothId]/archive/route.ts", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(sale, /await env\.DB\.batch\(statements\)[\s\S]*\["sales", "inventory", "payments"\]/);
+  assert.match(inventory, /await env\.DB\.batch\(statements\)[\s\S]*\["inventory"\]/);
+  assert.match(
+    reconciliation,
+    /await env\.DB\.batch\(statements\)[\s\S]*"reconciliation", "closure"/,
+  );
+  assert.match(archive, /await env\.DB\.batch\(statements\)[\s\S]*\["lifecycle"\]/);
+  assert.match(sale, /\.catch\(\(\) => undefined\)/);
+  assert.match(reconciliation, /\.catch\(\(\) => undefined\)/);
 });

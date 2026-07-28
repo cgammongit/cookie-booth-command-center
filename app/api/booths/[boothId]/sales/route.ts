@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { requireBoothAccess } from "../../../../../lib/access";
+import { broadcastBoothEvent } from "../../../../../lib/booth-live";
 import {
   canRecordBoothSales,
   getEffectiveBoothStatus,
@@ -181,6 +182,12 @@ export async function POST(
       { status: 409 },
     );
   }
+
+  await broadcastBoothEvent(
+    authorization.access.organizationId,
+    boothId,
+    ["sales", "inventory", "payments"],
+  ).catch(() => undefined);
 
   return Response.json({
     sale: {

@@ -5,6 +5,7 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  BOOTH_LIVE_ROOMS: DurableObjectNamespace;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -44,4 +45,5 @@ const worker = {
   },
 };
 
+export { BoothLiveRoom } from "./booth-live-room";
 export default worker;

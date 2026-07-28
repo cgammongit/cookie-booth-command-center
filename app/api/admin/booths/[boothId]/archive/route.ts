@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { requireOrganizationAdmin } from "../../../../../../lib/access";
+import { broadcastBoothEvent } from "../../../../../../lib/booth-live";
 
 const archiveSchema = z.object({
   organizationId: z.number().int().positive(),
@@ -121,6 +122,11 @@ export async function POST(
   }
 
   await env.DB.batch(statements);
+  await broadcastBoothEvent(
+    parsed.data.organizationId,
+    boothId,
+    ["lifecycle"],
+  ).catch(() => undefined);
   return Response.json({
     archived: true,
     alertCreated: hasActivity,

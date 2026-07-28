@@ -9,6 +9,7 @@ import { InventoryManagement } from "./inventory-management";
 import { PeopleRoles } from "./people-roles";
 import { TroopInventory } from "./troop-inventory";
 import { useActivePolling } from "./use-active-polling";
+import { useBoothLiveSync } from "./use-booth-live-sync";
 import type { BoothLifecycleStatus } from "../lib/booth-status";
 
 type Booth = {
@@ -130,6 +131,7 @@ export function Dashboard({
   const [error, setError] = useState("");
   const [boothSyncWarning, setBoothSyncWarning] = useState("");
   const [detailSyncWarning, setDetailSyncWarning] = useState("");
+  const [webSocketConnected, setWebSocketConnected] = useState(false);
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const now = useMemo(() => new Date(), []);
@@ -143,6 +145,7 @@ export function Dashboard({
     startsAt: toLocalDateTimeInput(new Date(now.getTime() + 86_400_000)),
     endsAt: toLocalDateTimeInput(new Date(now.getTime() + 90_000_000)),
   });
+  const selectedBoothId = selected?.id;
 
   const loadBooths = useCallback(async (signal: AbortSignal) => {
     try {
@@ -172,7 +175,7 @@ export function Dashboard({
   }, [organizationId]);
 
   const refreshBooths = useActivePolling(loadBooths, {
-    enabled: view === "dashboard",
+    enabled: view === "dashboard" && (!selectedBoothId || !webSocketConnected),
   });
 
   const totals = useMemo(() => ({
@@ -192,7 +195,6 @@ export function Dashboard({
     setBoothDraft((current) => ({ ...current, ...place }));
   }, []);
 
-  const selectedBoothId = selected?.id;
   const loadSelectedBooth = useCallback(async (signal: AbortSignal) => {
     if (!selectedBoothId) return;
     try {
@@ -233,7 +235,14 @@ export function Dashboard({
   }, [selectedBoothId]);
 
   const refreshSelectedBooth = useActivePolling(loadSelectedBooth, {
-    enabled: view === "dashboard" && Boolean(selectedBoothId),
+    enabled: view === "dashboard" && Boolean(selectedBoothId) && !webSocketConnected,
+  });
+  useBoothLiveSync({
+    boothIds: view === "dashboard" && selectedBoothId ? [selectedBoothId] : [],
+    onRefresh: async () => {
+      await Promise.all([refreshBooths(true), refreshSelectedBooth(true)]);
+    },
+    onConnectionChange: setWebSocketConnected,
   });
   const syncWarning = detailSyncWarning || boothSyncWarning;
 
@@ -316,7 +325,7 @@ export function Dashboard({
       } : current);
       setSaleStep(null);
       setSaleQuantities({});
-      void Promise.all([refreshBooths(), refreshSelectedBooth()]);
+      void Promise.all([refreshBooths(true), refreshSelectedBooth(true)]);
     } catch (saleError) {
       setError(saleError instanceof Error ? saleError.message : "Unable to finish sale");
     } finally {
@@ -362,7 +371,7 @@ export function Dashboard({
       setReconciliation(null);
       setSelected(null);
       setSelectedInventory([]);
-      await refreshBooths();
+      await refreshBooths(true);
     } catch (reconciliationError) {
       setError(
         reconciliationError instanceof Error
@@ -406,7 +415,7 @@ export function Dashboard({
         latitude: null,
         longitude: null,
       }));
-      await refreshBooths();
+      await refreshBooths(true);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Unable to create booth");
     } finally {
@@ -479,6 +488,7 @@ export function Dashboard({
       <TroopInventory
         organizationId={organizationId}
         organizationName={organizationName}
+        boothIds={booths.map((booth) => booth.id)}
         onBack={() => {
           setView("dashboard");
           void refreshBooths();

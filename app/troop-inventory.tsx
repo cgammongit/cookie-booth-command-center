@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useActivePolling } from "./use-active-polling";
+import { useBoothLiveSync } from "./use-booth-live-sync";
 
 type Balance = {
   productId: number;
@@ -51,10 +52,12 @@ const labels: Record<string, string> = {
 export function TroopInventory({
   organizationId,
   organizationName,
+  boothIds,
   onBack,
 }: {
   organizationId: number;
   organizationName: string;
+  boothIds: number[];
   onBack: () => void;
 }) {
   const [balances, setBalances] = useState<Balance[]>([]);
@@ -100,6 +103,12 @@ export function TroopInventory({
   }, [organizationId]);
 
   const refresh = useActivePolling(load);
+  useBoothLiveSync({
+    boothIds,
+    onRefresh: async () => {
+      await refresh(true);
+    },
+  });
 
   const totals = useMemo(() => balances.reduce((sum, item) => ({
     total: sum.total + Number(item.totalRemaining),
@@ -130,7 +139,7 @@ export function TroopInventory({
       if (!response.ok) throw new Error(payload.error || "Unable to record stock movement");
       setDraft((current) => ({ ...current, quantity: "", reference: "", reason: "" }));
       setNotice("Stock movement recorded in the troop inventory ledger.");
-      await refresh();
+      await refresh(true);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to record stock movement");
     } finally {

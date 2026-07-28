@@ -13,6 +13,20 @@
   "assets": {
     "binding": "ASSETS"
   },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BOOTH_LIVE_ROOMS",
+        "class_name": "BoothLiveRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["BoothLiveRoom"]
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",

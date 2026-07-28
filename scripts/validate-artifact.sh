@@ -34,6 +34,9 @@ const worker = await import(workerUrl.href);
 if (!worker.default || typeof worker.default.fetch !== "function") {
   throw new Error("dist/server/index.js must have an ESM default export with fetch(request, env, ctx)");
 }
+if (typeof worker.BoothLiveRoom !== "function") {
+  throw new Error("dist/server/index.js must export the BoothLiveRoom Durable Object");
+}
 NODE
 
-echo "Validated Sites artifact: ESM Worker default.fetch and hosting manifest are present."
+echo "Validated Sites artifact: Worker fetch, BoothLiveRoom, and hosting manifest are present."
