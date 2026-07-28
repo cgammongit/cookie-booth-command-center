@@ -48,3 +48,23 @@ test("troop inventory removals update an existing nonnegative balance", async ()
     /: env\.DB\.prepare\(`\s*UPDATE troop_inventory_balances/,
   );
 });
+
+test("booth sales are server-priced, payment-separated, and inventory-protected", async () => {
+  const [route, migration] = await Promise.all([
+    readFile(
+      new URL("../app/api/booths/[boothId]/sales/route.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../drizzle/0010_booth_sales.sql", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(route, /paymentMethod: z\.enum\(\["cash", "credit_card", "venmo_paypal"\]\)/);
+  assert.match(route, /totalAmount \+= quantity \* Number\(product\.price\)/);
+  assert.match(route, /UPDATE inventory SET sold = sold \+ \?/);
+  assert.match(route, /UPDATE troop_inventory_balances[\s\S]*total_remaining = total_remaining - \?/);
+  assert.match(route, /movement_type[\s\S]*'booth_sale'/);
+  assert.match(migration, /CREATE TRIGGER `inventory_prevent_oversell`/);
+});
