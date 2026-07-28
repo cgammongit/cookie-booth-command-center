@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { requireBoothAccess } from "../../../../../lib/access";
+import { broadcastBoothEvent } from "../../../../../lib/booth-live";
 import { getEffectiveBoothStatus } from "../../../../../lib/booth-status";
 
 const reconciliationSchema = z.object({
@@ -263,6 +264,12 @@ export async function POST(
       { status: 409 },
     );
   }
+
+  await broadcastBoothEvent(
+    authorization.access.organizationId,
+    boothId,
+    ["inventory", "payments", "lifecycle", "reconciliation", "closure"],
+  ).catch(() => undefined);
 
   return Response.json({
     reconciliation: {

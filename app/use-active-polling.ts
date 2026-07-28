@@ -20,8 +20,8 @@ export function useActivePolling(
     taskRef.current = task;
   }, [task]);
 
-  const refresh = useCallback(() => {
-    if (!enabled || document.visibilityState !== "visible") {
+  const refresh = useCallback((force = false) => {
+    if ((!enabled && !force) || document.visibilityState !== "visible") {
       return Promise.resolve();
     }
     if (inFlightRef.current) return inFlightRef.current;

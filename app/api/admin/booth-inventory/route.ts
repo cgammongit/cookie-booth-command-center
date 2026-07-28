@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { requireOrganizationAdmin } from "../../../../lib/access";
+import { broadcastBoothEvent } from "../../../../lib/booth-live";
 
 const querySchema = z.object({
   organizationId: z.coerce.number().int().positive(),
@@ -210,5 +211,10 @@ export async function PUT(request: Request) {
     }
     throw error;
   }
+  await broadcastBoothEvent(
+    parsed.data.organizationId,
+    parsed.data.boothId,
+    ["inventory"],
+  ).catch(() => undefined);
   return Response.json({ saved: true });
 }
