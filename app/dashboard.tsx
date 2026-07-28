@@ -58,6 +58,11 @@ type PaymentTotals = {
 };
 
 type SaleStep = "items" | "payment" | null;
+type ReconciliationState = {
+  finalCounts: Record<number, number>;
+  cashTurnedIn: string;
+  notes: string;
+};
 
 function formatWindow(booth: Booth) {
   const start = new Date(booth.startsAt);
@@ -113,6 +118,8 @@ export function Dashboard({
   const [saleStep, setSaleStep] = useState<SaleStep>(null);
   const [saleQuantities, setSaleQuantities] = useState<Record<number, number>>({});
   const [saleSubmitting, setSaleSubmitting] = useState(false);
+  const [reconciliation, setReconciliation] = useState<ReconciliationState | null>(null);
+  const [reconciliationSubmitting, setReconciliationSubmitting] = useState(false);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryBoothId, setInventoryBoothId] = useState<number | null>(null);
   const [view, setView] = useState<
@@ -248,6 +255,17 @@ export function Dashboard({
     .filter((product) => product.quantity > 0), [saleQuantities, selectedInventory]);
   const saleBoxCount = saleItems.reduce((sum, item) => sum + item.quantity, 0);
   const saleTotal = saleItems.reduce((sum, item) => sum + item.quantity * Number(item.price), 0);
+  const reconciliationExpectedBoxes = selectedInventory.reduce(
+    (sum, item) => sum + Number(item.remaining),
+    0,
+  );
+  const reconciliationActualBoxes = selectedInventory.reduce(
+    (sum, item) => sum + (reconciliation?.finalCounts[item.productId] ?? Number(item.remaining)),
+    0,
+  );
+  const inventoryDiscrepancy = reconciliationActualBoxes - reconciliationExpectedBoxes;
+  const cashTurnedIn = Number(reconciliation?.cashTurnedIn || 0);
+  const cashDiscrepancy = Math.round((cashTurnedIn - Number(paymentTotals.cash)) * 100) / 100;
 
   function openSale() {
     setSaleQuantities({});
@@ -316,6 +334,56 @@ export function Dashboard({
     }
   }
 
+  function openReconciliation() {
+    setError("");
+    setReconciliation({
+      finalCounts: Object.fromEntries(
+        selectedInventory.map((item) => [item.productId, Number(item.remaining)]),
+      ),
+      cashTurnedIn: Number(paymentTotals.cash).toFixed(2),
+      notes: "",
+    });
+  }
+
+  async function closeBooth() {
+    if (!selected || !reconciliation) return;
+    setReconciliationSubmitting(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/booths/${selected.id}/reconciliation`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          cashTurnedIn: Number(reconciliation.cashTurnedIn),
+          finalCounts: selectedInventory.map((item) => ({
+            productId: item.productId,
+            quantity: reconciliation.finalCounts[item.productId] ?? Number(item.remaining),
+          })),
+          notes: reconciliation.notes,
+        }),
+      });
+      const payload = await response.json() as {
+        reconciliation?: { id: number };
+        error?: string;
+      };
+      if (!response.ok || !payload.reconciliation) {
+        throw new Error(payload.error || "Unable to close and reconcile booth");
+      }
+      setReconciliation(null);
+      setSelected(null);
+      setSelectedInventory([]);
+      await loadBooths();
+    } catch (reconciliationError) {
+      setError(
+        reconciliationError instanceof Error
+          ? reconciliationError.message
+          : "Unable to close and reconcile booth",
+      );
+    } finally {
+      setReconciliationSubmitting(false);
+    }
+  }
+
   async function createBooth(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setCreating(true);
@@ -375,7 +443,6 @@ export function Dashboard({
       <BoothManagement
         organizationId={organizationId}
         organizationName={organizationName}
-        initialBoothId={inventoryBoothId}
         onBack={() => {
           setInventoryBoothId(null);
           setView("dashboard");
@@ -408,6 +475,7 @@ export function Dashboard({
       <InventoryManagement
         organizationId={organizationId}
         organizationName={organizationName}
+        initialBoothId={inventoryBoothId}
         onBack={() => {
           setView("dashboard");
           void loadBooths();
@@ -504,7 +572,9 @@ export function Dashboard({
               setView("inventory");
             }}>Manage booth products</button>
           )}
-          {canReconcile && <button>Close & reconcile booth</button>}
+          {canReconcile && selected.status === "pending_closure" && (
+            <button onClick={openReconciliation}>Close & reconcile booth</button>
+          )}
         </div>
       </div>
       <section className="inventory">
@@ -574,6 +644,143 @@ export function Dashboard({
                 </div>
               </>
             )}
+          </section>
+        </div>
+      )}
+      {reconciliation && (
+        <div className="modalBackdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !reconciliationSubmitting) {
+            setReconciliation(null);
+          }
+        }}>
+          <section
+            className="saleDialog reconciliationDialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reconciliation-title"
+          >
+            <div className="saleDialogHeader">
+              <div>
+                <p className="eyebrow">FINAL BOOTH HANDOFF</p>
+                <h2 id="reconciliation-title">Close & reconcile booth</h2>
+              </div>
+              <button
+                className="iconButton"
+                aria-label="Close reconciliation"
+                disabled={reconciliationSubmitting}
+                onClick={() => setReconciliation(null)}
+              >×</button>
+            </div>
+            <p className="reconciliationIntro">
+              Count every unsold box still at the booth. These boxes return to
+              troop inventory when the booth closes.
+            </p>
+            <div className="reconciliationCounts">
+              {selectedInventory.map((product) => {
+                const finalCount =
+                  reconciliation.finalCounts[product.productId] ?? Number(product.remaining);
+                const discrepancy = finalCount - Number(product.remaining);
+                return (
+                  <article key={product.productId}>
+                    <div>
+                      <strong>{product.name}</strong>
+                      <small>
+                        Expected {product.remaining}
+                        {discrepancy !== 0
+                          ? ` · ${discrepancy > 0 ? "+" : ""}${discrepancy} difference`
+                          : " · matches"}
+                      </small>
+                    </div>
+                    <label>
+                      Final count
+                      <input
+                        type="number"
+                        min="0"
+                        max="10000"
+                        inputMode="numeric"
+                        value={finalCount}
+                        onChange={(event) => {
+                          const quantity = Math.max(
+                            0,
+                            Math.min(10000, Number(event.target.value) || 0),
+                          );
+                          setReconciliation((current) => current ? {
+                            ...current,
+                            finalCounts: {
+                              ...current.finalCounts,
+                              [product.productId]: quantity,
+                            },
+                          } : current);
+                        }}
+                      />
+                    </label>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="reconciliationMoney">
+              <article><span>Expected cash</span><strong>${Number(paymentTotals.cash).toFixed(2)}</strong></article>
+              <label>
+                Cash turned in
+                <input
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={reconciliation.cashTurnedIn}
+                  onChange={(event) => setReconciliation((current) => current ? {
+                    ...current,
+                    cashTurnedIn: event.target.value,
+                  } : current)}
+                />
+              </label>
+              <article><span>Credit card</span><strong>${Number(paymentTotals.creditCard).toFixed(2)}</strong></article>
+              <article><span>Venmo / PayPal</span><strong>${Number(paymentTotals.venmoPaypal).toFixed(2)}</strong></article>
+            </div>
+            <div className="reconciliationSummary">
+              <div><span>Boxes returning</span><strong>{reconciliationActualBoxes}</strong></div>
+              <div className={inventoryDiscrepancy ? "hasDiscrepancy" : ""}>
+                <span>Inventory difference</span>
+                <strong>{inventoryDiscrepancy > 0 ? "+" : ""}{inventoryDiscrepancy}</strong>
+              </div>
+              <div className={cashDiscrepancy ? "hasDiscrepancy" : ""}>
+                <span>Cash difference</span>
+                <strong>{cashDiscrepancy >= 0 ? "+" : "−"}${Math.abs(cashDiscrepancy).toFixed(2)}</strong>
+              </div>
+            </div>
+            <label className="reconciliationNotes">
+              Notes {inventoryDiscrepancy !== 0 || cashDiscrepancy !== 0 ? "(required)" : "(optional)"}
+              <textarea
+                maxLength={1000}
+                rows={3}
+                placeholder="Explain any cash or box-count difference."
+                value={reconciliation.notes}
+                onChange={(event) => setReconciliation((current) => current ? {
+                  ...current,
+                  notes: event.target.value,
+                } : current)}
+              />
+            </label>
+            <div className="saleDialogFooter reconciliationFooter">
+              <div>
+                <span>Gross sales</span>
+                <strong>${Number(paymentTotals.gross).toFixed(2)}</strong>
+              </div>
+              <button
+                className="primary"
+                disabled={
+                  reconciliationSubmitting ||
+                  !Number.isFinite(cashTurnedIn) ||
+                  cashTurnedIn < 0 ||
+                  ((inventoryDiscrepancy !== 0 || cashDiscrepancy !== 0) &&
+                    reconciliation.notes.trim().length < 5)
+                }
+                onClick={() => void closeBooth()}
+              >
+                {reconciliationSubmitting ? "Closing booth…" : "Close booth & return inventory"}
+              </button>
+            </div>
           </section>
         </div>
       )}

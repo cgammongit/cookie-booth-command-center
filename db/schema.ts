@@ -151,7 +151,35 @@ export const sales=sqliteTable("sales",{
  index("sales_booth_payment").on(t.boothId,t.paymentMethod),
 ]);
 export const transactions=sqliteTable("transactions",{id:text("id").primaryKey(),saleId:text("sale_id"),boothId:integer("booth_id").notNull(),productId:integer("product_id").notNull(),operatorId:integer("operator_id").notNull(),type:text("type",{enum:["sale","correction","adjustment"]}).notNull(),quantity:integer("quantity").notNull(),amount:real("amount").notNull(),reason:text("reason"),createdAt:text("created_at").notNull()},t=>[index("transactions_sale").on(t.saleId)]);
-export const reconciliations=sqliteTable("reconciliations",{id:integer("id").primaryKey({autoIncrement:true}),boothId:integer("booth_id").notNull().unique(),closedBy:integer("closed_by").notNull(),cashTotal:real("cash_total").notNull(),digitalTotal:real("digital_total").notNull(),notes:text("notes"),closedAt:text("closed_at").notNull()});
+export const reconciliations=sqliteTable("reconciliations",{
+ id:integer("id").primaryKey({autoIncrement:true}),
+ boothId:integer("booth_id").notNull().unique(),
+ closedBy:integer("closed_by").notNull(),
+ cashTotal:real("cash_total").notNull(),
+ expectedCashTotal:real("expected_cash_total").notNull().default(0),
+ cashDiscrepancy:real("cash_discrepancy").notNull().default(0),
+ digitalTotal:real("digital_total").notNull(),
+ creditCardTotal:real("credit_card_total").notNull().default(0),
+ venmoPaypalTotal:real("venmo_paypal_total").notNull().default(0),
+ grossTotal:real("gross_total").notNull().default(0),
+ expectedBoxCount:integer("expected_box_count").notNull().default(0),
+ actualBoxCount:integer("actual_box_count").notNull().default(0),
+ inventoryDiscrepancyCount:integer("inventory_discrepancy_count").notNull().default(0),
+ notes:text("notes"),
+ closedAt:text("closed_at").notNull(),
+});
+export const reconciliationItems=sqliteTable("reconciliation_items",{
+ id:integer("id").primaryKey({autoIncrement:true}),
+ reconciliationId:integer("reconciliation_id").notNull(),
+ productId:integer("product_id").notNull(),
+ expectedRemaining:integer("expected_remaining").notNull(),
+ actualRemaining:integer("actual_remaining").notNull(),
+ discrepancy:integer("discrepancy").notNull(),
+ returnedToTroop:integer("returned_to_troop").notNull(),
+},t=>[
+ uniqueIndex("reconciliation_item_reconciliation_product").on(t.reconciliationId,t.productId),
+ index("reconciliation_item_product").on(t.productId),
+]);
 
 export const productCatalogAudit=sqliteTable("product_catalog_audit",{
  id:integer("id").primaryKey({autoIncrement:true}),
