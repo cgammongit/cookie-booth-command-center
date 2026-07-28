@@ -16,13 +16,6 @@ ALTER TABLE `transactions` ADD COLUMN `sale_id` text;
 --> statement-breakpoint
 CREATE INDEX `transactions_sale` ON `transactions` (`sale_id`);
 --> statement-breakpoint
-CREATE TRIGGER `inventory_prevent_oversell`
-BEFORE UPDATE OF `sold` ON `inventory`
-WHEN NEW.sold < 0 OR NEW.sold > NEW.opening + NEW.adjusted
-BEGIN
-  SELECT RAISE(ABORT, 'Booth inventory is insufficient for this sale');
-END;
---> statement-breakpoint
 ALTER TABLE `inventory_ledger` RENAME TO `inventory_ledger_legacy`;
 --> statement-breakpoint
 CREATE TABLE `inventory_ledger` (
