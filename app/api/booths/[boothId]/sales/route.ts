@@ -113,7 +113,8 @@ export async function POST(
       env.DB.prepare(`
         UPDATE inventory SET sold = sold + ?
         WHERE booth_id = ? AND product_id = ?
-      `).bind(quantity, boothId, product.productId),
+          AND (opening + adjusted - sold) >= ?
+      `).bind(quantity, boothId, product.productId, quantity),
       env.DB.prepare(`
         UPDATE troop_inventory_balances
         SET total_remaining = total_remaining - ?, updated_at = ?
