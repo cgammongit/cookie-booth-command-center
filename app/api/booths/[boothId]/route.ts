@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { requireBoothAccess } from "../../../../lib/access";
+import { getEffectiveBoothStatus } from "../../../../lib/booth-status";
 
 export async function GET(
   _request: Request,
@@ -43,7 +44,16 @@ export async function GET(
   ]);
 
   return Response.json({
-    booth,
+    booth: booth
+      ? {
+          ...booth,
+          status: getEffectiveBoothStatus(booth as {
+            status: string;
+            startsAt: string;
+            endsAt: string;
+          }),
+        }
+      : booth,
     inventory: inventory.results,
     paymentTotals,
     permissions: {
