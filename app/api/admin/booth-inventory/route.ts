@@ -2,6 +2,12 @@ import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { requireOrganizationAdmin } from "../../../../lib/access";
 import { broadcastBoothEvent } from "../../../../lib/booth-live";
+import {
+  buildInventorySnapshotGuard,
+  createInventoryRevision,
+  minimumSafeOpening,
+  type InventorySnapshotItem,
+} from "../../../../lib/inventory-allocation";
 
 const querySchema = z.object({
   organizationId: z.coerce.number().int().positive(),
@@ -11,6 +17,7 @@ const querySchema = z.object({
 const saveSchema = z.object({
   organizationId: z.number().int().positive(),
   boothId: z.number().int().positive(),
+  expectedRevision: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   allocations: z.array(z.object({
     productId: z.number().int().positive(),
     opening: z.number().int().min(0).max(10000),
@@ -28,6 +35,19 @@ async function findBooth(organizationId: number, boothId: number) {
   }>();
 }
 
+async function readInventorySnapshot(boothId: number) {
+  const result = await env.DB.prepare(`
+    SELECT product_id AS productId, opening, sold, adjusted
+    FROM inventory WHERE booth_id = ? ORDER BY product_id
+  `).bind(boothId).all<InventorySnapshotItem>();
+  return result.results.map((item) => ({
+    productId: Number(item.productId),
+    opening: Number(item.opening),
+    sold: Number(item.sold),
+    adjusted: Number(item.adjusted),
+  }));
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const parsed = querySchema.safeParse({
@@ -42,6 +62,7 @@ export async function GET(request: Request) {
   const booth = await findBooth(parsed.data.organizationId, parsed.data.boothId);
   if (!booth) return Response.json({ error: "Booth not found" }, { status: 404 });
 
+  const snapshot = await readInventorySnapshot(parsed.data.boothId);
   const result = await env.DB.prepare(`
     SELECT p.id, p.name, p.barcode, p.price, p.active,
       i.opening, i.sold, i.adjusted,
@@ -56,6 +77,7 @@ export async function GET(request: Request) {
   return Response.json({
     inventory: result.results,
     editable: !booth.archivedAt && booth.status !== "closed",
+    revision: await createInventoryRevision(snapshot, booth),
   });
 }
 
@@ -83,6 +105,12 @@ export async function PUT(request: Request) {
       { status: 409 },
     );
   }
+  if (!parsed.data.expectedRevision) {
+    return Response.json(
+      { error: "Refresh booth inventory before saving changes" },
+      { status: 428 },
+    );
+  }
 
   const productIds = [...new Set(parsed.data.allocations.map((item) => item.productId))];
   if (productIds.length !== parsed.data.allocations.length) {
@@ -102,26 +130,33 @@ export async function PUT(request: Request) {
     }
   }
 
-  const before = await env.DB.prepare(`
-    SELECT product_id AS productId, opening, sold, adjusted
-    FROM inventory WHERE booth_id = ? ORDER BY product_id
-  `).bind(parsed.data.boothId).all();
-  const existing = before.results as Array<{
-    productId: number;
-    opening: number;
-    sold: number;
-    adjusted: number;
-  }>;
-  const requested = new Map(parsed.data.allocations.map((item) => [item.productId, item.opening]));
-  const blockedRemoval = existing.find(
-    (item) =>
-      !requested.has(item.productId) &&
-      (Number(item.sold) !== 0 || Number(item.adjusted) !== 0),
-  );
-  if (blockedRemoval) {
+  const existing = await readInventorySnapshot(parsed.data.boothId);
+  const currentRevision = await createInventoryRevision(existing, booth);
+  if (parsed.data.expectedRevision !== currentRevision) {
     return Response.json(
-      { error: "Products with recorded booth activity cannot be removed" },
+      {
+        error: "Booth inventory changed in another session. Review the latest quantities and try again.",
+        code: "inventory_conflict",
+      },
       { status: 409 },
+    );
+  }
+
+  const requested = new Map(parsed.data.allocations.map((item) => [item.productId, item.opening]));
+  const invalidMinimum = existing.find((item) => {
+    const opening = requested.get(item.productId);
+    return opening !== undefined && opening < minimumSafeOpening(item);
+  });
+  if (invalidMinimum) {
+    const minimum = minimumSafeOpening(invalidMinimum);
+    return Response.json(
+      {
+        error: `Allocation must be at least ${minimum} to cover recorded booth activity.`,
+        code: "negative_inventory",
+        productId: invalidMinimum.productId,
+        minimum,
+      },
+      { status: 422 },
     );
   }
 
@@ -131,12 +166,33 @@ export async function PUT(request: Request) {
       productId: item.productId,
       delta: item.opening - (currentByProduct.get(item.productId) || 0),
     }))
-    .concat(
-      existing
-        .filter((item) => !requested.has(item.productId))
-        .map((item) => ({ productId: item.productId, delta: -Number(item.opening) })),
-    )
     .filter((item) => item.delta !== 0);
+  if (!changes.length) {
+    return Response.json({ saved: true, revision: currentRevision });
+  }
+
+  const changedProductIds = new Set(changes.map((item) => item.productId));
+  const changedAllocations = parsed.data.allocations.filter((item) =>
+    changedProductIds.has(item.productId)
+  );
+  const after = new Map(existing.map((item) => [item.productId, { ...item }]));
+  for (const item of changedAllocations) {
+    const current = after.get(item.productId);
+    after.set(item.productId, {
+      productId: item.productId,
+      opening: item.opening,
+      sold: current?.sold || 0,
+      adjusted: current?.adjusted || 0,
+    });
+  }
+  const afterSnapshot = [...after.values()].sort(
+    (left, right) => left.productId - right.productId,
+  );
+  const guard = buildInventorySnapshotGuard(
+    parsed.data.boothId,
+    parsed.data.organizationId,
+    existing,
+  );
   const now = new Date().toISOString();
   const statements = [
     ...changes.map((item) =>
@@ -144,11 +200,13 @@ export async function PUT(request: Request) {
         UPDATE troop_inventory_balances
         SET available = available + ?, updated_at = ?
         WHERE organization_id = ? AND product_id = ?
+          AND ${guard.sql}
       `).bind(
         -item.delta,
         now,
         parsed.data.organizationId,
         item.productId,
+        ...guard.params,
       ),
     ),
     ...changes.map((item) =>
@@ -156,7 +214,9 @@ export async function PUT(request: Request) {
         INSERT INTO inventory_ledger (
           organization_id, product_id, booth_id, actor_user_id, movement_type,
           total_delta, available_delta, booth_delta, reason, created_at
-        ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+        )
+        SELECT ?, ?, ?, ?, ?, 0, ?, ?, ?, ?
+        WHERE ${guard.sql}
       `).bind(
         parsed.data.organizationId,
         item.productId,
@@ -169,39 +229,50 @@ export async function PUT(request: Request) {
           ? "Opening inventory allocated to booth"
           : "Opening inventory returned to available troop stock",
         now,
+        ...guard.params,
       ),
-    ),
-    ...existing
-      .filter((item) => !requested.has(item.productId))
-      .map((item) =>
-        env.DB.prepare(`
-          DELETE FROM inventory
-          WHERE booth_id = ? AND product_id = ? AND sold = 0 AND adjusted = 0
-        `).bind(parsed.data.boothId, item.productId),
-      ),
-    ...parsed.data.allocations.map((item) =>
-      env.DB.prepare(`
-        INSERT INTO inventory (booth_id, product_id, opening, sold, adjusted)
-        VALUES (?, ?, ?, 0, 0)
-        ON CONFLICT (booth_id, product_id)
-        DO UPDATE SET opening = excluded.opening
-      `).bind(parsed.data.boothId, item.productId, item.opening),
     ),
     env.DB.prepare(`
       INSERT INTO inventory_configuration_audit (
         organization_id, booth_id, actor_user_id, before_json, after_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?)
+      )
+      SELECT ?, ?, ?, ?, ?, ?
+      WHERE ${guard.sql}
     `).bind(
       parsed.data.organizationId,
       parsed.data.boothId,
       authorization.access.userId,
       JSON.stringify(existing),
-      JSON.stringify(parsed.data.allocations),
+      JSON.stringify(afterSnapshot),
       now,
+      ...guard.params,
+    ),
+    env.DB.prepare(`
+      INSERT INTO inventory (booth_id, product_id, opening, sold, adjusted)
+      ${changedAllocations.map(() => `SELECT ?, ?, ?, 0, 0 WHERE ${guard.sql}`).join("\nUNION ALL\n")}
+      ON CONFLICT (booth_id, product_id)
+      DO UPDATE SET opening = excluded.opening
+    `).bind(
+      ...changedAllocations.flatMap((item) => [
+        parsed.data.boothId,
+        item.productId,
+        item.opening,
+        ...guard.params,
+      ]),
     ),
   ];
   try {
-    await env.DB.batch(statements);
+    const results = await env.DB.batch(statements);
+    const inventoryResult = results.at(-1);
+    if (Number(inventoryResult?.meta?.changes || 0) !== changedAllocations.length) {
+      return Response.json(
+        {
+          error: "Booth inventory changed in another session. Review the latest quantities and try again.",
+          code: "inventory_conflict",
+        },
+        { status: 409 },
+      );
+    }
   } catch (error) {
     if (String(error).toLowerCase().includes("check constraint")) {
       return Response.json(
@@ -216,5 +287,9 @@ export async function PUT(request: Request) {
     parsed.data.boothId,
     ["inventory"],
   ).catch(() => undefined);
-  return Response.json({ saved: true });
+  const savedSnapshot = await readInventorySnapshot(parsed.data.boothId);
+  return Response.json({
+    saved: true,
+    revision: await createInventoryRevision(savedSnapshot, booth),
+  });
 }
