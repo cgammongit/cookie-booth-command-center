@@ -48,6 +48,14 @@ async function readInventorySnapshot(boothId: number) {
   }));
 }
 
+async function readActiveProductIds(organizationId: number) {
+  const result = await env.DB.prepare(`
+    SELECT id FROM products
+    WHERE organization_id = ? AND active = 1
+  `).bind(organizationId).all<{ id: number }>();
+  return new Set(result.results.map((item) => Number(item.id)));
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const parsed = querySchema.safeParse({
@@ -65,7 +73,12 @@ export async function GET(request: Request) {
   const snapshot = await readInventorySnapshot(parsed.data.boothId);
   const result = await env.DB.prepare(`
     SELECT p.id, p.name, p.barcode, p.price, p.active,
-      i.opening, i.sold, i.adjusted,
+      CASE WHEN i.id IS NULL THEN 0 ELSE 1 END AS configured,
+      CASE
+        WHEN i.opening = 0 AND i.sold = 0 AND i.adjusted = 0 THEN NULL
+        ELSE i.opening
+      END AS opening,
+      i.sold, i.adjusted,
       COALESCE(tb.available, 0) AS troopAvailable
     FROM products p
     LEFT JOIN inventory i ON i.product_id = p.id AND i.booth_id = ?
@@ -116,18 +129,12 @@ export async function PUT(request: Request) {
   if (productIds.length !== parsed.data.allocations.length) {
     return Response.json({ error: "Each product may be allocated only once" }, { status: 400 });
   }
-  if (productIds.length) {
-    const placeholders = productIds.map(() => "?").join(",");
-    const valid = await env.DB.prepare(`
-      SELECT COUNT(*) AS count FROM products
-      WHERE organization_id = ? AND active = 1 AND id IN (${placeholders})
-    `).bind(parsed.data.organizationId, ...productIds).first<{ count: number }>();
-    if (Number(valid?.count || 0) !== productIds.length) {
-      return Response.json(
-        { error: "One or more selected products are inactive or outside this organization" },
-        { status: 400 },
-      );
-    }
+  const activeProductIds = await readActiveProductIds(parsed.data.organizationId);
+  if (productIds.some((productId) => !activeProductIds.has(productId))) {
+    return Response.json(
+      { error: "One or more selected products are inactive or outside this organization" },
+      { status: 400 },
+    );
   }
 
   const existing = await readInventorySnapshot(parsed.data.boothId);
@@ -143,9 +150,19 @@ export async function PUT(request: Request) {
   }
 
   const requested = new Map(parsed.data.allocations.map((item) => [item.productId, item.opening]));
+  const omittedActive = existing.filter(
+    (item) =>
+      activeProductIds.has(item.productId) &&
+      !requested.has(item.productId),
+  );
   const invalidMinimum = existing.find((item) => {
     const opening = requested.get(item.productId);
-    return opening !== undefined && opening < minimumSafeOpening(item);
+    return (
+      (opening !== undefined && opening < minimumSafeOpening(item)) ||
+      (opening === undefined &&
+        activeProductIds.has(item.productId) &&
+        minimumSafeOpening(item) > 0)
+    );
   });
   if (invalidMinimum) {
     const minimum = minimumSafeOpening(invalidMinimum);
@@ -157,6 +174,15 @@ export async function PUT(request: Request) {
         minimum,
       },
       { status: 422 },
+    );
+  }
+  if (omittedActive.length) {
+    return Response.json(
+      {
+        error: "Existing allocations must be sent explicitly. Use zero to deallocate a product.",
+        code: "allocation_intent_required",
+      },
+      { status: 400 },
     );
   }
 

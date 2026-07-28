@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   mergeUnrelatedAllocationDrafts,
+  normalizeAllocationSubmission,
   validateAllocationDraft,
 } from "../lib/inventory-allocation";
 
@@ -29,6 +30,7 @@ type Allocation = Product & {
   sold: number | null;
   adjusted: number | null;
   troopAvailable: number;
+  configured: number;
 };
 
 export function InventoryManagement({
@@ -309,7 +311,6 @@ export function InventoryManagement({
       allocations.filter(
         (item) =>
           Boolean(item.active) &&
-          item.opening !== null &&
           validateAllocationDraft({
             opening: item.opening,
             sold: Number(item.sold || 0),
@@ -337,9 +338,10 @@ export function InventoryManagement({
           organizationId,
           boothId: selectedBoothId,
           expectedRevision: inventoryRevision,
-          allocations: allocations
-            .filter((item) => Boolean(item.active) && item.opening !== null)
-            .map((item) => ({ productId: item.id, opening: Number(item.opening) })),
+          allocations: normalizeAllocationSubmission(
+            allocations,
+            allocationBaselineRef.current,
+          ),
         }),
       });
       const payload = await response.json() as { error?: string; code?: string };

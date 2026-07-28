@@ -30,10 +30,36 @@ export function validateAllocationDraft({
   adjusted: number;
 }) {
   const minimum = minimumSafeOpening({ sold, adjusted });
+  const normalizedOpening = opening === null ? 0 : Number(opening);
   return {
     minimum,
-    invalid: opening !== null && Number(opening) < minimum,
+    invalid: normalizedOpening < minimum,
   };
+}
+
+export function normalizeAllocationSubmission<
+  Item extends {
+    id: number;
+    active: number;
+    opening: number | null;
+    configured?: number;
+  },
+>(items: Item[], baseline: Item[]) {
+  const allocatedProductIds = new Set(
+    baseline
+      .filter((item) => Boolean(item.configured) || item.opening !== null)
+      .map((item) => item.id),
+  );
+  return items
+    .filter(
+      (item) =>
+        Boolean(item.active) &&
+        (item.opening !== null || allocatedProductIds.has(item.id)),
+    )
+    .map((item) => ({
+      productId: item.id,
+      opening: Number(item.opening ?? 0),
+    }));
 }
 
 export function mergeUnrelatedAllocationDrafts<

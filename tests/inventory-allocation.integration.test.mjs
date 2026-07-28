@@ -112,6 +112,9 @@ class InventoryStatement {
           .sort((left, right) => left.productId - right.productId),
       };
     }
+    if (sql.includes("select id from products") && sql.includes("active = 1")) {
+      return { results: [{ id: 1 }] };
+    }
     if (sql.includes("from products p") && sql.includes("left join inventory")) {
       const item = state.inventory.find((candidate) => candidate.productId === 1);
       return {
@@ -121,7 +124,11 @@ class InventoryStatement {
           barcode: "thin-mints",
           price: 6,
           active: 1,
-          opening: item?.opening ?? null,
+          configured: item ? 1 : 0,
+          opening:
+            item && item.opening === 0 && item.sold === 0 && item.adjusted === 0
+              ? null
+              : item?.opening ?? null,
           sold: item?.sold ?? null,
           adjusted: item?.adjusted ?? null,
           troopAvailable: state.troopAvailable,
@@ -208,6 +215,7 @@ const {
   createInventoryRevision,
   mergeUnrelatedAllocationDrafts,
   minimumSafeOpening,
+  normalizeAllocationSubmission,
   remainingInventory,
   validateAllocationDraft,
 } = await import("../lib/inventory-allocation.ts");
@@ -274,6 +282,25 @@ test("allocation math includes sales, returns, and prior adjustments", () => {
   assert.deepEqual(
     validateAllocationDraft({ opening: 9, sold: 7, adjusted: -2 }),
     { minimum: 9, invalid: false },
+  );
+  assert.deepEqual(
+    validateAllocationDraft({ opening: null, sold: 1, adjusted: 0 }),
+    { minimum: 1, invalid: true },
+  );
+});
+
+test("submission normalizes an existing cleared allocation without adding untouched blanks", () => {
+  const baseline = [
+    { id: 1, active: 1, opening: 10, configured: 1 },
+    { id: 2, active: 1, opening: null, configured: 0 },
+  ];
+  const drafts = [
+    { id: 1, active: 1, opening: null, configured: 1 },
+    { id: 2, active: 1, opening: null, configured: 0 },
+  ];
+  assert.deepEqual(
+    normalizeAllocationSubmission(drafts, baseline),
+    [{ productId: 1, opening: 0 }],
   );
 });
 
@@ -412,6 +439,94 @@ test("server rejects a reduction below the current minimum", async () => {
   assert.equal(state.inventory[0].opening, 10);
   assert.equal(state.ledger.length, 0);
   assert.equal(state.audits.length, 0);
+});
+
+test("clearing a no-activity allocation returns stock and persists unallocated", async () => {
+  reset({ opening: 10, sold: 0, adjusted: 0 });
+  const response = await route.PUT(saveRequest(0, await revision()));
+  assert.equal(response.status, 200);
+  assert.equal(state.inventory[0].opening, 0);
+  assert.equal(state.troopAvailable, 100);
+  assert.deepEqual(state.ledger.at(-1), {
+    organizationId: 1,
+    boothId: 100,
+    productId: 1,
+    actorUserId: 11,
+    delta: -10,
+  });
+  assert.equal(state.audits.at(-1).before[0].opening, 10);
+  assert.equal(state.audits.at(-1).after[0].opening, 0);
+
+  const loaded = await route.GET(
+    new Request(
+      "https://app.example/api/admin/booth-inventory?organizationId=1&boothId=100",
+    ),
+  );
+  assert.equal((await loaded.json()).inventory[0].opening, null);
+  assert.deepEqual(state.broadcasts.at(-1).body.topics, ["inventory"]);
+});
+
+test("clearing with sales or adjustments follows the authoritative minimum", async () => {
+  reset({ opening: 10, sold: 2, adjusted: 0 });
+  let response = await route.PUT(saveRequest(0, await revision()));
+  assert.equal(response.status, 422);
+  assert.equal((await response.json()).minimum, 2);
+
+  reset({ opening: 10, sold: 5, adjusted: -1 });
+  response = await route.PUT(saveRequest(0, await revision()));
+  assert.equal(response.status, 422);
+  assert.equal((await response.json()).minimum, 6);
+
+  reset({ opening: 10, sold: 5, adjusted: 5 });
+  response = await route.PUT(saveRequest(0, await revision()));
+  assert.equal(response.status, 200);
+  assert.equal(state.inventory[0].opening, 0);
+  assert.equal(remainingInventory(state.inventory[0]), 0);
+});
+
+test("omitting an existing active allocation is never reported as a successful clear", async () => {
+  for (const scenario of [
+    { sold: 0, expectedStatus: 400, expectedCode: "allocation_intent_required" },
+    { sold: 2, expectedStatus: 422, expectedCode: "negative_inventory" },
+  ]) {
+    reset({ opening: 10, sold: scenario.sold, adjusted: 0 });
+    const response = await route.PUT(
+      new Request("https://app.example/api/admin/booth-inventory", {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://app.example",
+        },
+        body: JSON.stringify({
+          organizationId: 1,
+          boothId: 100,
+          expectedRevision: await revision(),
+          allocations: [],
+        }),
+      }),
+    );
+    assert.equal(response.status, scenario.expectedStatus);
+    assert.equal((await response.json()).code, scenario.expectedCode);
+    assert.equal(state.inventory[0].opening, 10);
+    assert.equal(state.ledger.length, 0);
+    assert.equal(state.audits.length, 0);
+  }
+});
+
+test("a stale concurrent clear returns inventory_conflict without audit effects", async () => {
+  reset({ opening: 10, sold: 0, adjusted: 0 });
+  const expectedRevision = await revision();
+  state.concurrentBeforeBatch = () => {
+    state.inventory[0].sold = 1;
+  };
+  const response = await route.PUT(saveRequest(0, expectedRevision));
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).code, "inventory_conflict");
+  assert.equal(state.inventory[0].opening, 10);
+  assert.equal(state.inventory[0].sold, 1);
+  assert.equal(state.ledger.length, 0);
+  assert.equal(state.audits.length, 0);
+  assert.equal(state.broadcasts.length, 0);
 });
 
 test("concurrent sales, adjustments, and allocations cause atomic stale conflicts", async () => {
