@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useActivePolling } from "./use-active-polling";
 
 type Balance = {
   productId: number;
@@ -61,6 +62,7 @@ export function TroopInventory({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [syncWarning, setSyncWarning] = useState("");
   const [notice, setNotice] = useState("");
   const [draft, setDraft] = useState({
     productId: "",
@@ -70,12 +72,11 @@ export function TroopInventory({
     reason: "",
   });
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (signal: AbortSignal) => {
     try {
       const response = await fetch(
         `/api/admin/troop-inventory?organizationId=${organizationId}`,
-        { cache: "no-store" },
+        { cache: "no-store", signal },
       );
       const payload = await response.json() as {
         balances?: Balance[];
@@ -85,18 +86,20 @@ export function TroopInventory({
       if (!response.ok) throw new Error(payload.error || "Unable to load troop inventory");
       setBalances(payload.balances || []);
       setMovements(payload.movements || []);
+      setSyncWarning("");
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to load troop inventory");
+      if (signal.aborted) return;
+      setSyncWarning(
+        loadError instanceof Error
+          ? `Live synchronization paused: ${loadError.message}`
+          : "Live synchronization is temporarily unavailable.",
+      );
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   }, [organizationId]);
 
-  useEffect(() => {
-    // Initial remote load; subsequent refreshes are triggered by explicit stock actions.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-  }, [load]);
+  const refresh = useActivePolling(load);
 
   const totals = useMemo(() => balances.reduce((sum, item) => ({
     total: sum.total + Number(item.totalRemaining),
@@ -127,7 +130,7 @@ export function TroopInventory({
       if (!response.ok) throw new Error(payload.error || "Unable to record stock movement");
       setDraft((current) => ({ ...current, quantity: "", reference: "", reason: "" }));
       setNotice("Stock movement recorded in the troop inventory ledger.");
-      await load();
+      await refresh();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to record stock movement");
     } finally {
@@ -151,6 +154,7 @@ export function TroopInventory({
         <div className="peopleSummary"><strong>{totals.total}</strong><span>boxes remaining</span></div>
       </section>
       {error && <div className="alert errorAlert" role="alert">{error}</div>}
+      {syncWarning && <div className="alert policyAlert" role="status">{syncWarning} Showing the last successfully synchronized data.</div>}
       {notice && <div className="alert successAlert" role="status">{notice}</div>}
       <section className="stats">
         <article><span>Total remaining</span><strong>{totals.total}</strong><small>owned by troop</small></article>

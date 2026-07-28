@@ -91,7 +91,7 @@ test("booth sales are server-priced, payment-separated, and inventory-protected"
 });
 
 test("booth lifecycle derives live and pending-closure sales windows", async () => {
-  const [lifecycle, boothRoute, saleRoute, dashboard] = await Promise.all([
+  const [lifecycle, boothRoute, saleRoute, dashboard, polling] = await Promise.all([
     readFile(new URL("../lib/booth-status.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/booths/route.ts", import.meta.url), "utf8"),
     readFile(
@@ -99,6 +99,7 @@ test("booth lifecycle derives live and pending-closure sales windows", async () 
       "utf8",
     ),
     readFile(new URL("../app/dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/use-active-polling.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(lifecycle, /if \(now < startsAt\) return "scheduled"/);
@@ -107,7 +108,8 @@ test("booth lifecycle derives live and pending-closure sales windows", async () 
   assert.match(lifecycle, /status === "live" \|\| status === "pending_closure"/);
   assert.match(boothRoute, /getEffectiveBoothStatus\(booth\)/);
   assert.match(saleRoute, /canRecordBoothSales\(effectiveStatus\)/);
-  assert.match(dashboard, /30_000/);
+  assert.match(dashboard, /useActivePolling\(loadBooths/);
+  assert.match(polling, /intervalMs = 15_000/);
   assert.match(dashboard, /selected\.status === "pending_closure"/);
 });
 
@@ -135,4 +137,37 @@ test("booth reconciliation returns stock, separates payment totals, and closes m
   assert.match(migration, /CREATE TABLE `reconciliation_items`/);
   assert.match(dashboard, /Close booth & return inventory/);
   assert.match(dashboard, /selected\.status === "pending_closure"/);
+});
+
+test("active pages synchronize booth operations and troop inventory without overlapping polls", async () => {
+  const [polling, dashboard, troopInventory] = await Promise.all([
+    readFile(new URL("../app/use-active-polling.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/troop-inventory.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(polling, /document\.visibilityState !== "visible"/);
+  assert.match(polling, /if \(inFlightRef\.current\) return inFlightRef\.current/);
+  assert.match(polling, /document\.addEventListener\("visibilitychange"/);
+  assert.match(polling, /controllerRef\.current\?\.abort\(\)/);
+  assert.match(polling, /window\.setTimeout/);
+  assert.doesNotMatch(polling, /window\.setInterval/);
+
+  assert.match(dashboard, /useActivePolling\(loadBooths/);
+  assert.match(dashboard, /useActivePolling\(loadSelectedBooth/);
+  assert.match(dashboard, /setSelectedInventory\(payload\.inventory \|\| \[\]\)/);
+  assert.match(dashboard, /setPaymentTotals\(payload\.paymentTotals/);
+  assert.match(dashboard, /setSelected\(\(current\)[\s\S]*payload\.booth/);
+  assert.match(dashboard, /Promise\.all\(\[refreshBooths\(\), refreshSelectedBooth\(\)\]\)/);
+  assert.match(dashboard, /Showing the last successfully synchronized data/);
+  const boothSync = dashboard.slice(
+    dashboard.indexOf("const loadSelectedBooth"),
+    dashboard.indexOf("const refreshSelectedBooth"),
+  );
+  assert.doesNotMatch(boothSync, /setSaleStep|setSaleQuantities|setReconciliation/);
+
+  assert.match(troopInventory, /useActivePolling\(load\)/);
+  assert.match(troopInventory, /setBalances\(payload\.balances \|\| \[\]\)/);
+  assert.match(troopInventory, /setMovements\(payload\.movements \|\| \[\]\)/);
+  assert.match(troopInventory, /Showing the last successfully synchronized data/);
 });
