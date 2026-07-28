@@ -26,6 +26,9 @@ export class BoothLiveRoom extends DurableObject<Cloudflare.Env> {
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
+    ctx.setWebSocketAutoResponse(
+      new WebSocketRequestResponsePair("ping", "pong"),
+    );
     ctx.blockConcurrencyWhile(async () => {
       const [identity, revision] = await Promise.all([
         ctx.storage.get<RoomIdentity>("identity"),
@@ -166,9 +169,5 @@ export class BoothLiveRoom extends DurableObject<Cloudflare.Env> {
   async alarm() {
     await this.ctx.blockConcurrencyWhile(() => this.publish(["lifecycle"]));
     await this.scheduleLifecycleAlarm();
-  }
-
-  webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
-    if (typeof message === "string" && message === "ping") socket.send("pong");
   }
 }

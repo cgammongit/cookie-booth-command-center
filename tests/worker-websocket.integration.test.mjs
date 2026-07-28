@@ -1,0 +1,228 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+workerUrl.searchParams.set("worker-websocket-test", `${process.pid}-${Date.now()}`);
+const { createWorker } = await import(workerUrl.href);
+
+const boothRows = new Map([
+  [
+    8,
+    {
+      organizationId: 1,
+      userId: 11,
+      organizationRole: "admin",
+      assignmentRole: null,
+      status: "live",
+      archivedAt: null,
+    },
+  ],
+  [
+    9,
+    {
+      organizationId: 2,
+      userId: 22,
+      organizationRole: "admin",
+      assignmentRole: null,
+      status: "live",
+      archivedAt: null,
+    },
+  ],
+]);
+
+function createDatabase({ fail = false, rowOverride } = {}) {
+  return {
+    prepare() {
+      if (fail) throw new Error("database unavailable");
+      return {
+        bind(clerkUserId, boothId) {
+          return {
+            async first() {
+              if (rowOverride !== undefined) return rowOverride;
+              const row = boothRows.get(Number(boothId));
+              if (!row) return null;
+              const expectedUser =
+                row.organizationId === 1 ? "clerk-user-one" : "clerk-user-two";
+              return clerkUserId === expectedUser ? row : null;
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+function createHarness({
+  userId = "clerk-user-one",
+  database = createDatabase(),
+  roomFailure = false,
+} = {}) {
+  const webSocket = { readyState: 1 };
+  const upgradeResponse = {
+    body: null,
+    headers: new Headers(),
+    status: 101,
+    statusText: "Switching Protocols",
+    webSocket,
+  };
+  let appHandlerCalls = 0;
+  let authenticateOptions;
+  let clerkClientOptions;
+  let roomName = "";
+  const worker = createWorker({
+    appHandler: {
+      async fetch() {
+        appHandlerCalls += 1;
+        return new Response(null, { status: 500 });
+      },
+    },
+    clerkClientFactory: (options) => {
+      clerkClientOptions = options;
+      return {
+        async authenticateRequest(_request, options) {
+          authenticateOptions = options;
+          return {
+            isAuthenticated: Boolean(userId),
+            toAuth: () => ({ userId }),
+          };
+        },
+      };
+    },
+  });
+  const env = {
+    ASSETS: { fetch: async () => new Response(null, { status: 404 }) },
+    DB: database,
+    CLERK_SECRET_KEY: "configured",
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "configured",
+    BOOTH_LIVE_ROOMS: {
+      getByName(name) {
+        roomName = name;
+        return {
+          async fetch() {
+            if (roomFailure) throw new Error("room unavailable");
+            return upgradeResponse;
+          },
+        };
+      },
+    },
+  };
+  return {
+    appHandlerCalls: () => appHandlerCalls,
+    authenticateOptions: () => authenticateOptions,
+    clerkClientOptions: () => clerkClientOptions,
+    env,
+    roomName: () => roomName,
+    upgradeResponse,
+    webSocket,
+    worker,
+  };
+}
+
+function websocketRequest(boothId, origin = "https://app.example") {
+  return new Request(`https://app.example/api/booths/${boothId}/live`, {
+    headers: { origin, upgrade: "websocket" },
+  });
+}
+
+const ctx = {
+  waitUntil() {},
+  passThroughOnException() {},
+};
+
+test("authorized raw Worker request preserves the original 101 WebSocket response", async () => {
+  const harness = createHarness();
+  const response = await harness.worker.fetch(
+    websocketRequest(8),
+    harness.env,
+    ctx,
+  );
+
+  assert.equal(response.status, 101);
+  assert.equal(response.webSocket, harness.webSocket);
+  assert.equal(response, harness.upgradeResponse);
+  assert.equal(harness.roomName(), "1:8");
+  assert.equal(harness.appHandlerCalls(), 0, "vinext must not process the upgrade");
+  assert.deepEqual(harness.authenticateOptions(), {
+    acceptsToken: "session_token",
+    authorizedParties: ["https://app.example"],
+  });
+  assert.deepEqual(harness.clerkClientOptions(), {
+    secretKey: "configured",
+    publishableKey: "configured",
+  });
+});
+
+test("raw Worker rejects missing authentication", async () => {
+  const harness = createHarness({ userId: null });
+  const response = await harness.worker.fetch(
+    websocketRequest(8),
+    harness.env,
+    ctx,
+  );
+  assert.equal(response.status, 401);
+  assert.equal(harness.appHandlerCalls(), 0);
+});
+
+test("raw Worker rejects cross-organization booth access", async () => {
+  const harness = createHarness();
+  const response = await harness.worker.fetch(
+    websocketRequest(9),
+    harness.env,
+    ctx,
+  );
+  assert.equal(response.status, 403);
+  assert.equal(harness.roomName(), "");
+});
+
+test("raw Worker rejects an unassigned booth operator", async () => {
+  const harness = createHarness({
+    database: createDatabase({
+      rowOverride: {
+        ...boothRows.get(8),
+        organizationRole: "volunteer",
+        assignmentRole: null,
+      },
+    }),
+  });
+  const response = await harness.worker.fetch(
+    websocketRequest(8),
+    harness.env,
+    ctx,
+  );
+  assert.equal(response.status, 403);
+  assert.equal(harness.roomName(), "");
+});
+
+test("raw Worker rejects invalid Origin and non-upgrade requests", async () => {
+  const harness = createHarness();
+  const invalidOrigin = await harness.worker.fetch(
+    websocketRequest(8, "https://hostile.example"),
+    harness.env,
+    ctx,
+  );
+  assert.equal(invalidOrigin.status, 403);
+
+  const nonUpgrade = await harness.worker.fetch(
+    new Request("https://app.example/api/booths/8/live", {
+      headers: { origin: "https://app.example" },
+    }),
+    harness.env,
+    ctx,
+  );
+  assert.equal(nonUpgrade.status, 426);
+  assert.equal(harness.appHandlerCalls(), 0);
+});
+
+test("raw Worker returns a safe error when the Durable Object fails", async () => {
+  const harness = createHarness({ roomFailure: true });
+  const response = await harness.worker.fetch(
+    websocketRequest(8),
+    harness.env,
+    ctx,
+  );
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), {
+    error: "Live updates are temporarily unavailable",
+  });
+  assert.match(response.headers.get("x-request-id") ?? "", /^[0-9a-f-]{36}$/);
+});

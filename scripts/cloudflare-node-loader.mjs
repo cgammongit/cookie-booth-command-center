@@ -9,7 +9,7 @@ export async function resolve(specifier, context, nextResolve) {
   if (specifier === "cloudflare:workers") {
     return {
       shortCircuit: true,
-      url: "data:text/javascript,export const env = globalThis.__CLOUDFLARE_ENV__ ?? {}; export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }",
+      url: "data:text/javascript,export const env = globalThis.__CLOUDFLARE_ENV__ ?? {}; export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } } export class WebSocketRequestResponsePair { constructor(request, response) { this.request = request; this.response = response; } }",
     };
   }
 

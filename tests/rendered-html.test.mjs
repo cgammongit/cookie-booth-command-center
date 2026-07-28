@@ -195,6 +195,12 @@ test("active pages synchronize booth operations and troop inventory without over
 });
 
 test("durable booth rooms serialize rapid events for simultaneous users and isolate organizations", async () => {
+  globalThis.WebSocketRequestResponsePair = class {
+    constructor(request, response) {
+      this.request = request;
+      this.response = response;
+    }
+  };
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("durable-room-test", `${process.pid}-${Date.now()}`);
   const { BoothLiveRoom } = await import(workerUrl.href);
@@ -224,6 +230,10 @@ test("durable booth rooms serialize rapid events for simultaneous users and isol
   };
   const ctx = {
     storage,
+    setWebSocketAutoResponse(pair) {
+      assert.equal(pair.request, "ping");
+      assert.equal(pair.response, "pong");
+    },
     blockConcurrencyWhile(callback) {
       const result = gate.then(callback);
       gate = result.then(() => undefined, () => undefined);
@@ -304,20 +314,24 @@ test("durable booth rooms serialize rapid events for simultaneous users and isol
 });
 
 test("websocket authorization is server-derived and booth-scoped", async () => {
-  const [route, access, room, config] = await Promise.all([
+  const [route, handler, access, room, config] = await Promise.all([
     readFile(new URL("../app/api/booths/[boothId]/live/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../lib/access.ts", import.meta.url), "utf8"),
+    readFile(new URL("../worker/booth-live-handler.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/booth-live-access.ts", import.meta.url), "utf8"),
     readFile(new URL("../worker/booth-live-room.ts", import.meta.url), "utf8"),
     readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
   ]);
 
-  assert.match(route, /requireBoothAccess\(boothId\)/);
-  assert.match(route, /origin !== requestUrl\.origin/);
-  assert.match(route, /authorization\.access\.organizationId/);
-  assert.match(route, /authorization\.access\.userId/);
-  assert.match(access, /eq\(memberships\.status, "active"\)/);
-  assert.match(access, /eq\(users\.clerkUserId, clerkUserId\)/);
+  assert.match(route, /handleBoothLiveRequest/);
+  assert.match(handler, /origin !== requestUrl\.origin/);
+  assert.match(handler, /authorizeBoothLiveAccess/);
+  assert.match(handler, /access\.organizationId/);
+  assert.match(handler, /access\.userId/);
+  assert.match(access, /m\.status = 'active'/);
+  assert.match(access, /u\.clerk_user_id = \?/);
+  assert.match(access, /evaluateBoothPermission/);
   assert.match(room, /Room identity does not match/);
+  assert.match(room, /WebSocketRequestResponsePair\("ping", "pong"\)/);
   assert.match(config, /"name": "BOOTH_LIVE_ROOMS"/);
   assert.match(config, /"new_sqlite_classes": \["BoothLiveRoom"\]/);
 });
@@ -333,15 +347,28 @@ test("websocket clients recover missed revisions and retain polling fallback", a
   assert.match(liveSync, /event\.revision !== currentRevision \+ 1/);
   assert.match(liveSync, /currentRevision !== event\.revision/);
   assert.match(liveSync, /event\.revision <= currentRevision/);
-  assert.match(liveSync, /MAX_RECONNECT_DELAY_MS = 15_000/);
+  assert.match(liveSync, /HEARTBEAT_INTERVAL_MS = 27_500/);
+  assert.match(liveSync, /PONG_DEADLINE_MS = 10_000/);
+  assert.match(liveSync, /MAX_RECONNECT_DELAY_MS = 30_000/);
+  assert.match(liveSync, /RECONNECT_COOLDOWN_MS = 60_000/);
+  assert.match(liveSync, /Math\.random\(\)/);
   assert.match(liveSync, /document\.visibilityState === "visible"/);
+  assert.match(liveSync, /navigator\.onLine/);
+  assert.match(liveSync, /socket\.send\("ping"\)/);
+  assert.match(liveSync, /message\.data === "pong"/);
+  assert.match(liveSync, /window\.addEventListener\("online"/);
+  assert.match(liveSync, /window\.addEventListener\("offline"/);
   assert.match(liveSync, /pendingRevisions\.clear\(\)/);
   assert.match(liveSync, /while \(active && pendingRevisions\.size\)/);
   assert.match(liveSync, /revision <= \(requestedRevisions\.get\(boothId\) \|\| 0\)/);
   assert.match(liveSync, /sockets\.get\(boothId\) !== socket/);
   assert.match(polling, /intervalMs = 15_000/);
   assert.match(polling, /\(!enabled && !force\)/);
-  assert.match(dashboard, /!webSocketConnected/);
+  assert.match(dashboard, /liveSyncStatus !== "connected"/);
+  assert.match(dashboard, /Live updates connected/);
+  assert.match(dashboard, /Reconnecting — polling every 15 seconds/);
+  assert.match(dashboard, /Polling only/);
+  assert.match(dashboard, /Synchronization paused — showing last valid data/);
   assert.match(dashboard, /refreshSelectedBooth\(true\)/);
   assert.match(troopInventory, /useBoothLiveSync/);
 
