@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const developmentPreviewMeta =
@@ -30,4 +31,20 @@ test("renders development preview metadata", async () => {
     /^text\/html\b/i,
   );
   assert.match(await response.text(), developmentPreviewMeta);
+});
+
+test("troop inventory removals update an existing nonnegative balance", async () => {
+  const route = await readFile(
+    new URL("../app/api/admin/troop-inventory/route.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    route,
+    /!positive[\s\S]*Number\(balance\.available\) < parsed\.data\.quantity/,
+  );
+  assert.match(
+    route,
+    /: env\.DB\.prepare\(`\s*UPDATE troop_inventory_balances/,
+  );
 });
