@@ -89,6 +89,8 @@ test("supplemental source assertions retain server authorization and tenant-scop
     reconciliation: "../app/api/booths/[boothId]/reconciliation/route.ts",
     invitations: "../app/api/organization-invitations/route.ts",
     websocket: "../app/api/booths/[boothId]/live/route.ts",
+    websocketHandler: "../worker/booth-live-handler.ts",
+    websocketAccess: "../lib/booth-live-access.ts",
   };
   const source = Object.fromEntries(
     await Promise.all(
@@ -109,9 +111,13 @@ test("supplemental source assertions retain server authorization and tenant-scop
   assert.match(source.reconciliation, /authorization\.access\.organizationId/);
   assert.match(source.invitations, /requireInvitationManager/);
   assert.match(source.invitations, /organizationInvitations\.organizationId/);
-  assert.match(source.websocket, /origin !== requestUrl\.origin/);
-  assert.match(source.websocket, /requireBoothAccess\(boothId\)/);
-  assert.match(source.websocket, /`\$\{organizationId\}:\$\{boothId\}`/);
+  assert.match(source.websocket, /handleBoothLiveRequest/);
+  assert.match(source.websocketHandler, /origin !== requestUrl\.origin/);
+  assert.match(source.websocketHandler, /authorizeBoothLiveAccess/);
+  assert.match(source.websocketHandler, /`\$\{access\.organizationId\}:\$\{boothId\}`/);
+  assert.match(source.websocketAccess, /m\.status = 'active'/);
+  assert.match(source.websocketAccess, /u\.status = 'active'/);
+  assert.match(source.websocketAccess, /evaluateBoothPermission/);
 });
 
 test("unsafe API requests reject a supplied cross-origin Origin without changing webhook verification", () => {

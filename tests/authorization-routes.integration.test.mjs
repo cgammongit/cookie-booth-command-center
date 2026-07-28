@@ -65,6 +65,26 @@ class TestStatement {
   }
 
   async first() {
+    const sql = normalized(this.sql);
+    if (sql.includes("from booths b") && sql.includes("inner join memberships m")) {
+      const [clerkUserId, boothId] = this.params;
+      const booth = booths.get(Number(boothId));
+      if (
+        clerkUserId !== state.user.clerkUserId ||
+        !booth ||
+        booth.organizationId !== state.user.organizationId
+      ) {
+        return null;
+      }
+      return {
+        organizationId: booth.organizationId,
+        userId: state.user.userId,
+        organizationRole: state.user.role,
+        assignmentRole: state.assigned ? state.user.role : null,
+        status: booth.status,
+        archivedAt: booth.archivedAt,
+      };
+    }
     state.businessCalls += 1;
     return null;
   }

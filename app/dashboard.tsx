@@ -9,7 +9,10 @@ import { InventoryManagement } from "./inventory-management";
 import { PeopleRoles } from "./people-roles";
 import { TroopInventory } from "./troop-inventory";
 import { useActivePolling } from "./use-active-polling";
-import { useBoothLiveSync } from "./use-booth-live-sync";
+import {
+  useBoothLiveSync,
+  type LiveSyncStatus,
+} from "./use-booth-live-sync";
 import type { BoothLifecycleStatus } from "../lib/booth-status";
 
 type Booth = {
@@ -131,7 +134,8 @@ export function Dashboard({
   const [error, setError] = useState("");
   const [boothSyncWarning, setBoothSyncWarning] = useState("");
   const [detailSyncWarning, setDetailSyncWarning] = useState("");
-  const [webSocketConnected, setWebSocketConnected] = useState(false);
+  const [liveSyncStatus, setLiveSyncStatus] =
+    useState<LiveSyncStatus>("polling");
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const now = useMemo(() => new Date(), []);
@@ -175,7 +179,9 @@ export function Dashboard({
   }, [organizationId]);
 
   const refreshBooths = useActivePolling(loadBooths, {
-    enabled: view === "dashboard" && (!selectedBoothId || !webSocketConnected),
+    enabled:
+      view === "dashboard" &&
+      (!selectedBoothId || liveSyncStatus !== "connected"),
   });
 
   const totals = useMemo(() => ({
@@ -235,16 +241,27 @@ export function Dashboard({
   }, [selectedBoothId]);
 
   const refreshSelectedBooth = useActivePolling(loadSelectedBooth, {
-    enabled: view === "dashboard" && Boolean(selectedBoothId) && !webSocketConnected,
+    enabled:
+      view === "dashboard" &&
+      Boolean(selectedBoothId) &&
+      liveSyncStatus !== "connected",
   });
   useBoothLiveSync({
     boothIds: view === "dashboard" && selectedBoothId ? [selectedBoothId] : [],
     onRefresh: async () => {
       await Promise.all([refreshBooths(true), refreshSelectedBooth(true)]);
     },
-    onConnectionChange: setWebSocketConnected,
+    onStatusChange: setLiveSyncStatus,
   });
   const syncWarning = detailSyncWarning || boothSyncWarning;
+  const liveSyncText =
+    liveSyncStatus === "connected"
+      ? "● Live updates connected"
+      : liveSyncStatus === "reconnecting"
+        ? "Reconnecting — polling every 15 seconds"
+        : liveSyncStatus === "paused"
+          ? "Synchronization paused — showing last valid data"
+          : "Polling only";
 
   const saleItems = useMemo(() => selectedInventory
     .map((product) => ({
@@ -515,12 +532,12 @@ export function Dashboard({
             {selected.locationName || selected.address} · Lead: {selected.lead || "Not assigned"}
           </p>
         </div>
-        <div className={salesOpen ? "live" : "permissionNote"}>
-          {selected.status === "live"
-            ? "● Live and syncing"
-            : selected.status === "pending_closure"
-              ? "Pending Closure"
-              : selected.status}
+        <div
+          className={
+            liveSyncStatus === "connected" ? "live" : "permissionNote"
+          }
+        >
+          {liveSyncText}
         </div>
       </section>
       {syncWarning && <div className="alert policyAlert" role="status">{syncWarning} Showing the last successfully synchronized data.</div>}
