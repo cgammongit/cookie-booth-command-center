@@ -13,5 +13,28 @@ export async function resolve(specifier, context, nextResolve) {
     };
   }
 
-  return nextResolve(specifier, context);
+  if (specifier === "@clerk/nextjs/server") {
+    return {
+      shortCircuit: true,
+      url: "data:text/javascript,export async function auth(){return globalThis.__CLERK_TEST_AUTH__ ?? {userId:null}}; export async function clerkClient(){return globalThis.__CLERK_TEST_CLIENT__}",
+    };
+  }
+
+  try {
+    return await nextResolve(specifier, context);
+  } catch (error) {
+    if (
+      context.parentURL?.endsWith(".ts") &&
+      (specifier.startsWith(".") || specifier.startsWith("/"))
+    ) {
+      for (const candidate of [`${specifier}.ts`, `${specifier}/index.ts`]) {
+        try {
+          return await nextResolve(candidate, context);
+        } catch {
+          // Try the next TypeScript resolution used by the integration tests.
+        }
+      }
+    }
+    throw error;
+  }
 }
