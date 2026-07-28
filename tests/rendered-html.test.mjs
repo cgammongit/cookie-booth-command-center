@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
+import path from "node:path";
 import test from "node:test";
 
 const developmentPreviewMeta =
@@ -85,6 +86,36 @@ test("troop inventory shows expandable active-booth allocation details", async (
   assert.match(inventory, /<details className="boothAllocationBreakdown">/);
   assert.match(inventory, /booth\.boothName/);
   assert.match(inventory, /booth\.quantity/);
+});
+
+test("inventory allocation UI validates activity minimums without locking active booths", async () => {
+  const inventoryManagement = await readFile(
+    path.join(process.cwd(), "app", "inventory-management.tsx"),
+    "utf8",
+  );
+  const route = await readFile(
+    path.join(
+      process.cwd(),
+      "app",
+      "api",
+      "admin",
+      "booth-inventory",
+      "route.ts",
+    ),
+    "utf8",
+  );
+
+  assert.doesNotMatch(
+    inventoryManagement,
+    /disabled=\{[^}]*item\.sold[^}]*item\.adjusted/,
+  );
+  assert.match(inventoryManagement, /min=\{minimum\}/);
+  assert.match(inventoryManagement, /a lower allocation would make remaining inventory negative/);
+  assert.match(inventoryManagement, /inventory_conflict/);
+  assert.match(inventoryManagement, /preserveUnrelatedDrafts/);
+  assert.match(route, /expectedRevision/);
+  assert.match(route, /buildInventorySnapshotGuard/);
+  assert.match(route, /broadcastBoothEvent[\s\S]*\["inventory"\]/);
 });
 
 test("booth sales are server-priced, payment-separated, and inventory-protected", async () => {

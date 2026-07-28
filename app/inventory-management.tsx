@@ -1,6 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  mergeUnrelatedAllocationDrafts,
+  normalizeAllocationSubmission,
+  validateAllocationDraft,
+} from "../lib/inventory-allocation";
 
 type Product = {
   id: number;
@@ -25,6 +30,7 @@ type Allocation = Product & {
   sold: number | null;
   adjusted: number | null;
   troopAvailable: number;
+  configured: number;
 };
 
 export function InventoryManagement({
@@ -42,10 +48,13 @@ export function InventoryManagement({
   const [booths, setBooths] = useState<Booth[]>([]);
   const [selectedBoothId, setSelectedBoothId] = useState<number | null>(null);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
+  const allocationBaselineRef = useRef<Allocation[]>([]);
+  const allocationDraftRef = useRef<Allocation[]>([]);
   const [boothQuery, setBoothQuery] = useState("");
   const [productQuery, setProductQuery] = useState("");
   const [showInactive, setShowInactive] = useState(false);
   const [editable, setEditable] = useState(true);
+  const [inventoryRevision, setInventoryRevision] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState("");
   const [error, setError] = useState("");
@@ -116,8 +125,12 @@ export function InventoryManagement({
     };
   }, [organizationId]);
 
-  const loadAllocations = useCallback(async (boothId: number) => {
+  const loadAllocations = useCallback(async (
+    boothId: number,
+    { preserveUnrelatedDrafts = false } = {},
+  ) => {
     setError("");
+    setInventoryRevision("");
     try {
       const response = await fetch(
         `/api/admin/booth-inventory?organizationId=${organizationId}&boothId=${boothId}`,
@@ -126,11 +139,23 @@ export function InventoryManagement({
       const payload = await response.json() as {
         inventory?: Allocation[];
         editable?: boolean;
+        revision?: string;
         error?: string;
       };
       if (!response.ok) throw new Error(payload.error || "Unable to load booth inventory");
-      setAllocations(payload.inventory || []);
+      const latest = payload.inventory || [];
+      const next = preserveUnrelatedDrafts
+        ? mergeUnrelatedAllocationDrafts(
+            latest,
+            allocationBaselineRef.current,
+            allocationDraftRef.current,
+          )
+        : latest;
+      allocationBaselineRef.current = latest;
+      allocationDraftRef.current = next;
+      setAllocations(next);
       setEditable(Boolean(payload.editable));
+      setInventoryRevision(payload.revision || "");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load booth inventory");
     }
@@ -270,17 +295,38 @@ export function InventoryManagement({
   }
 
   function updateOpening(productId: number, value: string) {
-    setAllocations((current) =>
-      current.map((item) =>
+    setAllocations((current) => {
+      const next = current.map((item) =>
         item.id === productId
           ? { ...item, opening: value === "" ? null : Math.max(0, Number(value)) }
           : item,
-      ),
-    );
+      );
+      allocationDraftRef.current = next;
+      return next;
+    });
   }
 
+  const invalidAllocations = useMemo(
+    () =>
+      allocations.filter(
+        (item) =>
+          Boolean(item.active) &&
+          validateAllocationDraft({
+            opening: item.opening,
+            sold: Number(item.sold || 0),
+            adjusted: Number(item.adjusted || 0),
+          }).invalid,
+      ),
+    [allocations],
+  );
+
   async function saveInventory() {
-    if (!selectedBoothId) return;
+    if (
+      !selectedBoothId ||
+      !editable ||
+      !inventoryRevision ||
+      invalidAllocations.length
+    ) return;
     setSaving("inventory");
     setError("");
     setNotice("");
@@ -291,12 +337,24 @@ export function InventoryManagement({
         body: JSON.stringify({
           organizationId,
           boothId: selectedBoothId,
-          allocations: allocations
-            .filter((item) => Boolean(item.active) && item.opening !== null)
-            .map((item) => ({ productId: item.id, opening: Number(item.opening) })),
+          expectedRevision: inventoryRevision,
+          allocations: normalizeAllocationSubmission(
+            allocations,
+            allocationBaselineRef.current,
+          ),
         }),
       });
-      const payload = await response.json() as { error?: string };
+      const payload = await response.json() as { error?: string; code?: string };
+      if (response.status === 409 && payload.code === "inventory_conflict") {
+        await loadAllocations(selectedBoothId, {
+          preserveUnrelatedDrafts: true,
+        });
+        setError(
+          payload.error ||
+            "Booth inventory changed in another session. Latest quantities are now shown.",
+        );
+        return;
+      }
       if (!response.ok) throw new Error(payload.error || "Unable to save inventory");
       setNotice("Booth allocation saved as an audited transfer from troop inventory.");
       await loadAllocations(selectedBoothId);
@@ -407,7 +465,16 @@ export function InventoryManagement({
               <h2>{selectedBooth?.name || "Select a booth"}</h2>
             </div>
             {selectedBooth && (
-              <button className="saveAccess" disabled={!editable || saving === "inventory"} onClick={() => void saveInventory()}>
+              <button
+                className="saveAccess"
+                disabled={
+                  !editable ||
+                  !inventoryRevision ||
+                  Boolean(invalidAllocations.length) ||
+                  saving === "inventory"
+                }
+                onClick={() => void saveInventory()}
+              >
                 {saving === "inventory" ? "Saving…" : "Save inventory"}
               </button>
             )}
@@ -416,28 +483,43 @@ export function InventoryManagement({
             <div className="loadingState">Choose a booth to configure its product allocation.</div>
           ) : (
             <>
-              {!editable && <div className="alert policyAlert">Closed and archived inventory is retained as read-only history.</div>}
+              {!editable && (
+                <div className="alert policyAlert">
+                  This booth is closed or archived. Its inventory is locked as read-only history.
+                </div>
+              )}
               <div className="allocationList">
-                {allocations.filter((item) => Boolean(item.active) || item.opening !== null).map((item) => (
-                  <label key={item.id} className={item.active ? "" : "inactive"}>
-                    <span><strong>{item.name}</strong><small>{item.barcode} · ${Number(item.price).toFixed(2)}</small></span>
-                    <input
-                      aria-label={`${item.name} opening count`}
-                      disabled={!editable || !item.active || Number(item.sold || 0) !== 0 || Number(item.adjusted || 0) !== 0}
-                      min="0"
-                      max="10000"
-                      type="number"
-                      placeholder="Not allocated"
-                      value={item.opening ?? ""}
-                      onChange={(event) => updateOpening(item.id, event.target.value)}
-                    />
-                    <small>
-                      {Number(item.sold || 0) || Number(item.adjusted || 0)
-                        ? `${item.sold || 0} sold · ${item.adjusted || 0} adjusted`
-                        : `${item.troopAvailable || 0} available · ${item.opening ?? 0} allocated`}
-                    </small>
-                  </label>
-                ))}
+                {allocations.filter((item) => Boolean(item.active) || item.opening !== null).map((item) => {
+                  const { minimum, invalid } = validateAllocationDraft({
+                    opening: item.opening,
+                    sold: Number(item.sold || 0),
+                    adjusted: Number(item.adjusted || 0),
+                  });
+                  return (
+                    <label key={item.id} className={item.active ? "" : "inactive"}>
+                      <span><strong>{item.name}</strong><small>{item.barcode} · ${Number(item.price).toFixed(2)}</small></span>
+                      <input
+                        aria-describedby={`allocation-help-${item.id}`}
+                        aria-invalid={invalid}
+                        aria-label={`${item.name} opening count`}
+                        disabled={!editable || !item.active}
+                        min={minimum}
+                        max="10000"
+                        type="number"
+                        placeholder="Not allocated"
+                        value={item.opening ?? ""}
+                        onChange={(event) => updateOpening(item.id, event.target.value)}
+                      />
+                      <small id={`allocation-help-${item.id}`}>
+                        {invalid
+                          ? `Enter at least ${minimum}; a lower allocation would make remaining inventory negative.`
+                          : Number(item.sold || 0) || Number(item.adjusted || 0)
+                            ? `${item.sold || 0} sold · ${item.adjusted || 0} adjusted · minimum allocation ${minimum}`
+                            : `${item.troopAvailable || 0} available · ${item.opening ?? 0} allocated`}
+                      </small>
+                    </label>
+                  );
+                })}
               </div>
             </>
           )}
