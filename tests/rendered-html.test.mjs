@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
 const developmentPreviewMeta =
@@ -31,6 +31,25 @@ test("renders development preview metadata", async () => {
     /^text\/html\b/i,
   );
   assert.match(await response.text(), developmentPreviewMeta);
+  assert.match(
+    response.headers.get("content-security-policy-report-only") ?? "",
+    /default-src 'self'/,
+  );
+  assert.equal(response.headers.get("x-frame-options"), "DENY");
+  assert.equal(response.headers.get("strict-transport-security"), "max-age=86400");
+  assert.match(response.headers.get("x-request-id") ?? "", /^[0-9a-f-]{36}$/);
+
+  const clientAssets = await readdir(
+    new URL("../dist/client/assets", import.meta.url),
+  );
+  const authAsset = clientAssets.find((name) => name.startsWith("auth-panels-"));
+  assert.ok(authAsset, "built Clerk sign-in asset should be present");
+  const authSource = await readFile(
+    new URL(`../dist/client/assets/${authAsset}`, import.meta.url),
+    "utf8",
+  );
+  assert.match(authSource, /Sign in securely/);
+  assert.match(authSource, /Access is invitation-only/);
 });
 
 test("troop inventory removals update an existing nonnegative balance", async () => {

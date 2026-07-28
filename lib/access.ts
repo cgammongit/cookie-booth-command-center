@@ -2,8 +2,15 @@ import { auth } from "@clerk/nextjs/server";
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { assignments, booths, memberships, users } from "../db/schema";
+import {
+  canAdministerOrganization,
+  canManageInvitations,
+  evaluateBoothPermission,
+  type BoothPermission,
+  type OrganizationRole,
+} from "./authorization-policy";
 
-export type OrganizationRole = "admin" | "lead" | "volunteer" | "auditor";
+export type { OrganizationRole } from "./authorization-policy";
 export type MembershipStatus = "pending" | "active" | "suspended";
 
 export type OrganizationAccess = {
@@ -55,7 +62,7 @@ export async function requireOrganizationAdmin(organizationId: number) {
       access: null,
     };
   }
-  if (access.role !== "admin") {
+  if (!canAdministerOrganization(access.role, organizationId, access.organizationId)) {
     return {
       error: Response.json(
         { error: "Administrator access is required" },
@@ -75,7 +82,14 @@ export async function requireInvitationManager(organizationId: number) {
       access: null,
     };
   }
-  if (access.role !== "admin" && !(access.role === "lead" && access.canInviteUsers)) {
+  if (
+    !canManageInvitations(
+      access.role,
+      access.canInviteUsers,
+      organizationId,
+      access.organizationId,
+    )
+  ) {
     return {
       error: Response.json(
         { error: "Invitation permission is required" },
@@ -156,16 +170,25 @@ export async function getBoothAccess(boothId: number): Promise<BoothAccess | nul
 
 export async function requireBoothAccess(
   boothId: number,
-  permission: "view" | "operate" | "manage" | "reconcile" | "reports" = "view",
+  permission: BoothPermission = "view",
 ) {
   const access = await getBoothAccess(boothId);
   const permitted =
     Boolean(access) &&
-    (permission === "view" ||
-      (permission === "operate" && access?.canOperate) ||
-      (permission === "manage" && access?.canManage) ||
-      (permission === "reconcile" && access?.canReconcile) ||
-      (permission === "reports" && access?.canViewReports));
+    evaluateBoothPermission(
+      {
+        organizationId: access!.organizationId,
+        boothOrganizationId: access!.organizationId,
+        organizationRole: access!.role,
+        assigned:
+          access!.role === "admin" ||
+          access!.role === "auditor" ||
+          Boolean(access!.assignmentRole),
+        archived: access!.archived,
+        closed: access!.closed,
+      },
+      permission,
+    );
 
   if (!access || !permitted) {
     return {
