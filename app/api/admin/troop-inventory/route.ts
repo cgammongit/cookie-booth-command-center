@@ -99,9 +99,30 @@ export async function POST(request: Request) {
   const positive = additions.has(parsed.data.type);
   const delta = positive ? parsed.data.quantity : -parsed.data.quantity;
   const now = new Date().toISOString();
-  try {
-    await env.DB.batch([
-      env.DB.prepare(`
+  const balance = await env.DB.prepare(`
+    SELECT total_remaining AS totalRemaining, available
+    FROM troop_inventory_balances
+    WHERE organization_id = ? AND product_id = ?
+  `).bind(parsed.data.organizationId, parsed.data.productId).first<{
+    totalRemaining: number;
+    available: number;
+  }>();
+  if (
+    !positive &&
+    (
+      !balance ||
+      Number(balance.totalRemaining) < parsed.data.quantity ||
+      Number(balance.available) < parsed.data.quantity
+    )
+  ) {
+    return Response.json(
+      { error: "This removal exceeds the troop inventory currently available" },
+      { status: 409 },
+    );
+  }
+
+  const balanceMutation = positive
+    ? env.DB.prepare(`
         INSERT INTO troop_inventory_balances (
           organization_id, product_id, total_remaining, available, updated_at
         ) VALUES (?, ?, ?, ?, ?)
@@ -115,7 +136,24 @@ export async function POST(request: Request) {
         delta,
         delta,
         now,
-      ),
+      )
+    : env.DB.prepare(`
+        UPDATE troop_inventory_balances
+        SET total_remaining = total_remaining + ?,
+          available = available + ?,
+          updated_at = ?
+        WHERE organization_id = ? AND product_id = ?
+      `).bind(
+        delta,
+        delta,
+        now,
+        parsed.data.organizationId,
+        parsed.data.productId,
+      );
+
+  try {
+    await env.DB.batch([
+      balanceMutation,
       env.DB.prepare(`
         INSERT INTO inventory_ledger (
           organization_id, product_id, actor_user_id, movement_type,
