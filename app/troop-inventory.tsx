@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import {
+  formatInventoryMovementDisplayQuantity,
+  getInventoryMovementDisplayQuantity,
+} from "../lib/inventory-movement-display";
 import { useActivePolling } from "./use-active-polling";
 import { useBoothLiveSync } from "./use-booth-live-sync";
 
@@ -46,6 +50,7 @@ const labels: Record<string, string> = {
   correction_out: "Correction — remove",
   booth_allocation: "Allocated to booth",
   booth_return: "Returned from booth",
+  booth_sale: "Sold at booth",
   legacy_migration: "Existing booth stock migrated",
 };
 
@@ -219,7 +224,24 @@ export function TroopInventory({
       <section className="peoplePanel">
         <div className="panelHeading"><div><p className="eyebrow">IMMUTABLE HISTORY</p><h2>Recent stock movements</h2></div></div>
         <div className="ledgerList">
-          {movements.map((movement) => <article key={movement.id}><div><strong>{movement.productName}</strong><small>{labels[movement.type] || movement.type}{movement.boothName ? ` · ${movement.boothName}` : ""}</small></div><b className={Number(movement.totalDelta) < 0 ? "negative" : ""}>{Number(movement.totalDelta) > 0 ? "+" : ""}{movement.totalDelta}</b><div><span>{movement.reference || movement.reason || "No reference"}</span><small>{new Date(movement.createdAt).toLocaleString()} · {movement.actorName || "System migration"}</small></div></article>)}
+          {movements.map((movement) => {
+            const displayQuantity = getInventoryMovementDisplayQuantity(movement);
+            return (
+              <article key={movement.id}>
+                <div>
+                  <strong>{movement.productName}</strong>
+                  <small>{labels[movement.type] || movement.type}{movement.boothName ? ` · ${movement.boothName}` : ""}</small>
+                </div>
+                <b className={displayQuantity < 0 ? "negative" : ""}>
+                  {formatInventoryMovementDisplayQuantity(movement)}
+                </b>
+                <div>
+                  <span>{movement.reference || movement.reason || "No reference"}</span>
+                  <small>{new Date(movement.createdAt).toLocaleString()} · {movement.actorName || "System migration"}</small>
+                </div>
+              </article>
+            );
+          })}
         </div>
       </section>
       <aside><b>Inventory rule</b><span>Booth allocations move available stock; they do not change troop-owned totals. Only sales and documented removals reduce total remaining stock.</span></aside>
