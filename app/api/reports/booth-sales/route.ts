@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { getOrganizationAccess } from "../../../../lib/access";
+import { hasOrganizationPermission } from "../../../../lib/organization-permissions";
 
 const querySchema = z.object({
   organizationId: z.coerce.number().int().positive(),
@@ -71,7 +72,7 @@ export async function GET(request: Request) {
   }
 
   const access = await getOrganizationAccess(parsed.data.organizationId);
-  if (!access || (access.role !== "admin" && access.role !== "auditor")) {
+  if (!access || !hasOrganizationPermission(access.role, "report.view")) {
     return Response.json(
       { error: "Report access requires an administrator or auditor role" },
       { status: 403 },

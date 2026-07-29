@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
-import { requireOrganizationAdmin } from "../../../../../lib/access";
+import { requireOrganizationPermission } from "../../../../../lib/access";
 
 const updateSchema = z.object({
   organizationId: z.number().int().positive(),
@@ -32,7 +32,10 @@ export async function PATCH(
       { status: 400 },
     );
   }
-  const authorization = await requireOrganizationAdmin(parsed.data.organizationId);
+  const authorization = await requireOrganizationPermission(
+    parsed.data.organizationId,
+    "product.manage",
+  );
   if (authorization.error) return authorization.error;
 
   const before = await env.DB.prepare(`

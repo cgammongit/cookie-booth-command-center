@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { organizationInvitations } from "../../../../../db/schema";
 import { requireInvitationManager } from "../../../../../lib/access";
+import { hasOrganizationPermission } from "../../../../../lib/organization-permissions";
 import {
   clerkErrorMessage,
   invitationRedirectUrl,
@@ -45,7 +46,10 @@ export async function POST(
     );
   }
   if (
-    authorization.access.role === "lead" &&
+    !hasOrganizationPermission(
+      authorization.access.role,
+      "invitation.manageAllRoles",
+    ) &&
     (invitation.role !== "volunteer" ||
       invitation.invitedByUserId !== authorization.access.userId)
   ) {

@@ -1,6 +1,10 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
-import { getOrganizationAccess, requireOrganizationAdmin } from "../../../lib/access";
+import {
+  getOrganizationAccess,
+  requireOrganizationPermission,
+} from "../../../lib/access";
+import { hasOrganizationPermission } from "../../../lib/organization-permissions";
 import { getEffectiveBoothStatus, type BoothLifecycleStatus } from "../../../lib/booth-status";
 
 const querySchema = z.object({
@@ -54,7 +58,10 @@ export async function GET(request: Request) {
     return Response.json({ error: "Access not assigned" }, { status: 403 });
   }
 
-  const restricted = access.role === "lead" || access.role === "volunteer";
+  const restricted = !hasOrganizationPermission(
+    access.role,
+    "booth.viewOrganizationWide",
+  );
   const result = await env.DB.prepare(`
     SELECT
       b.id,
@@ -107,8 +114,8 @@ export async function GET(request: Request) {
       status: getEffectiveBoothStatus(booth),
     })),
     permissions: {
-      canCreateBooths: access.role === "admin",
-      canViewReports: access.role === "admin" || access.role === "auditor",
+      canCreateBooths: hasOrganizationPermission(access.role, "booth.create"),
+      canViewReports: hasOrganizationPermission(access.role, "report.view"),
       assignmentRequired: restricted,
     },
   });
@@ -129,7 +136,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const authorization = await requireOrganizationAdmin(parsed.data.organizationId);
+  const authorization = await requireOrganizationPermission(
+    parsed.data.organizationId,
+    "booth.create",
+  );
   if (authorization.error) return authorization.error;
 
   const result = await env.DB.prepare(`

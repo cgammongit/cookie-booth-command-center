@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
-import { requireOrganizationAdmin } from "../../../../lib/access";
+import { requireOrganizationPermission } from "../../../../lib/access";
 
 const querySchema = z.object({
   organizationId: z.coerce.number().int().positive(),
@@ -14,7 +14,10 @@ export async function GET(request: Request) {
     return Response.json({ error: "A valid organization is required" }, { status: 400 });
   }
 
-  const authorization = await requireOrganizationAdmin(parsed.data.organizationId);
+  const authorization = await requireOrganizationPermission(
+    parsed.data.organizationId,
+    "booth.manage",
+  );
   if (authorization.error) return authorization.error;
 
   const [booths, alerts] = await Promise.all([

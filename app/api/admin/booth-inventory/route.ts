@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
-import { requireOrganizationAdmin } from "../../../../lib/access";
+import { requireOrganizationPermission } from "../../../../lib/access";
 import { broadcastBoothEvent } from "../../../../lib/booth-live";
 import {
   buildInventorySnapshotGuard,
@@ -65,7 +65,10 @@ export async function GET(request: Request) {
   if (!parsed.success) {
     return Response.json({ error: "Valid organization and booth are required" }, { status: 400 });
   }
-  const authorization = await requireOrganizationAdmin(parsed.data.organizationId);
+  const authorization = await requireOrganizationPermission(
+    parsed.data.organizationId,
+    "inventory.manage",
+  );
   if (authorization.error) return authorization.error;
   const booth = await findBooth(parsed.data.organizationId, parsed.data.boothId);
   if (!booth) return Response.json({ error: "Booth not found" }, { status: 404 });
@@ -108,7 +111,10 @@ export async function PUT(request: Request) {
       { status: 400 },
     );
   }
-  const authorization = await requireOrganizationAdmin(parsed.data.organizationId);
+  const authorization = await requireOrganizationPermission(
+    parsed.data.organizationId,
+    "inventory.manage",
+  );
   if (authorization.error) return authorization.error;
   const booth = await findBooth(parsed.data.organizationId, parsed.data.boothId);
   if (!booth) return Response.json({ error: "Booth not found" }, { status: 404 });

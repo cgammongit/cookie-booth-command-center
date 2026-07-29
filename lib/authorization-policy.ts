@@ -1,4 +1,9 @@
-export type OrganizationRole = "admin" | "lead" | "volunteer" | "auditor";
+import {
+  hasOrganizationPermission,
+  type OrganizationRole,
+} from "./organization-permissions";
+
+export type { OrganizationRole } from "./organization-permissions";
 export type BoothPermission = "view" | "operate" | "manage" | "reconcile" | "reports";
 
 export type BoothPolicyInput = {
@@ -15,7 +20,10 @@ export function canAdministerOrganization(
   resourceOrganizationId: number,
   actorOrganizationId: number,
 ) {
-  return role === "admin" && resourceOrganizationId === actorOrganizationId;
+  return (
+    resourceOrganizationId === actorOrganizationId &&
+    hasOrganizationPermission(role, "people.manage")
+  );
 }
 
 export function canManageInvitations(
@@ -26,7 +34,9 @@ export function canManageInvitations(
 ) {
   return (
     resourceOrganizationId === actorOrganizationId &&
-    (role === "admin" || (role === "lead" && canInviteUsers))
+    hasOrganizationPermission(role, "invitation.manage") &&
+    (hasOrganizationPermission(role, "invitation.manageAllRoles") ||
+      canInviteUsers)
   );
 }
 
@@ -35,25 +45,31 @@ export function evaluateBoothPermission(
   permission: BoothPermission,
 ) {
   if (input.organizationId !== input.boothOrganizationId) return false;
+  if (!hasOrganizationPermission(input.organizationRole, "booth.view")) {
+    return false;
+  }
   if (
-    (input.organizationRole === "lead" || input.organizationRole === "volunteer") &&
+    !hasOrganizationPermission(
+      input.organizationRole,
+      "booth.viewOrganizationWide",
+    ) &&
     !input.assigned
   ) {
     return false;
   }
   if (permission === "view") return true;
   if (permission === "reports") {
-    return input.organizationRole === "admin" || input.organizationRole === "auditor";
+    return hasOrganizationPermission(input.organizationRole, "report.view");
   }
   if (input.archived || input.closed) return false;
-  if (permission === "manage") return input.organizationRole === "admin";
+  if (permission === "manage") {
+    return hasOrganizationPermission(input.organizationRole, "booth.manage");
+  }
   if (permission === "reconcile") {
-    return input.organizationRole === "admin" || input.organizationRole === "lead";
+    return hasOrganizationPermission(input.organizationRole, "booth.reconcile");
   }
   return (
     permission === "operate" &&
-    (input.organizationRole === "admin" ||
-      input.organizationRole === "lead" ||
-      input.organizationRole === "volunteer")
+    hasOrganizationPermission(input.organizationRole, "booth.operate")
   );
 }

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getDb } from "../../../db";
 import { memberships, organizationInvitations, users } from "../../../db/schema";
 import { requireInvitationManager } from "../../../lib/access";
+import { hasOrganizationPermission } from "../../../lib/organization-permissions";
 import {
   clerkErrorMessage,
   invitationRedirectUrl,
@@ -40,7 +41,10 @@ export async function GET(request: Request) {
     audit: [],
     currentUserId: authorization.access.userId,
     invitations:
-      authorization.access.role === "admin"
+      hasOrganizationPermission(
+        authorization.access.role,
+        "invitation.manageAllRoles",
+      )
         ? invitations
         : invitations.filter(
             (invitation) =>
@@ -72,7 +76,13 @@ export async function POST(request: Request) {
   };
   const authorization = await requireInvitationManager(requested.organizationId);
   if (authorization.error) return authorization.error;
-  if (authorization.access.role === "lead" && requested.role !== "volunteer") {
+  if (
+    !hasOrganizationPermission(
+      authorization.access.role,
+      "invitation.manageAllRoles",
+    ) &&
+    requested.role !== "volunteer"
+  ) {
     return Response.json(
       { error: "Delegated leads may invite volunteers only" },
       { status: 403 },

@@ -17,7 +17,7 @@ const dashboard = await readFile(
 
 test("reports are tenant-scoped and limited to administrators and auditors", () => {
   assert.match(route, /getOrganizationAccess\(parsed\.data\.organizationId\)/);
-  assert.match(route, /access\.role !== "admin" && access\.role !== "auditor"/);
+  assert.match(route, /hasOrganizationPermission\(access\.role, "report\.view"\)/);
   assert.match(route, /selected booths do not belong to this organization/);
   assert.match(route, /b\.organization_id = \?/);
 });
