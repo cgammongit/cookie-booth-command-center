@@ -9,6 +9,7 @@ import {
   type BoothPermission,
   type OrganizationRole,
 } from "./authorization-policy";
+import { getAdminMfaDecision } from "./admin-mfa";
 
 export type { OrganizationRole } from "./authorization-policy";
 export type MembershipStatus = "pending" | "active" | "suspended";
@@ -28,6 +29,8 @@ export async function getOrganizationAccess(
 ): Promise<OrganizationAccess | null> {
   const { userId: clerkUserId } = await auth();
   if (!clerkUserId) return null;
+  const mfa = await getAdminMfaDecision(clerkUserId);
+  if (mfa.required && !mfa.configured) return null;
 
   const [access] = await getDb()
     .select({

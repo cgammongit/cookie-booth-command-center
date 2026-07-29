@@ -14,10 +14,20 @@ const state = {
   assigned: true,
   businessCalls: 0,
   roomCalls: 0,
+  mfaEnabled: true,
+  mfaLookupFailure: false,
+  anyAdminMembership: true,
 };
 
 globalThis.__CLERK_TEST_AUTH__ = { userId: state.user.clerkUserId };
-globalThis.__CLERK_TEST_CLIENT__ = {};
+globalThis.__CLERK_TEST_CLIENT__ = {
+  users: {
+    async getUser() {
+      if (state.mfaLookupFailure) throw new Error("Clerk unavailable");
+      return { twoFactorEnabled: state.mfaEnabled };
+    },
+  },
+};
 
 function normalized(sql) {
   return sql.replace(/\s+/g, " ").trim().toLowerCase();
@@ -36,6 +46,15 @@ class TestStatement {
 
   async raw() {
     const sql = normalized(this.sql);
+    if (
+      sql.includes('from "users" inner join "memberships"') &&
+      sql.includes('"memberships"."role" = ?')
+    ) {
+      const isActor = this.params.includes(state.user.clerkUserId);
+      return isActor && state.anyAdminMembership
+        ? [[state.user.membershipId]]
+        : [];
+    }
     if (sql.includes('from "users" inner join "memberships"')) {
       const targetsActorOrganization =
         Number(this.params[0]) === state.user.organizationId;
@@ -66,6 +85,12 @@ class TestStatement {
 
   async first() {
     const sql = normalized(this.sql);
+    if (sql.includes("m.role = 'admin'") && sql.includes("u.clerk_user_id = ?")) {
+      return this.params[0] === state.user.clerkUserId &&
+        state.anyAdminMembership
+        ? { is_admin: 1 }
+        : null;
+    }
     if (sql.includes("from booths b") && sql.includes("inner join memberships m")) {
       const [clerkUserId, boothId] = this.params;
       const booth = booths.get(Number(boothId));
@@ -156,6 +181,9 @@ function asRole(role, { canInviteUsers = false, assigned = true } = {}) {
   state.assigned = assigned;
   state.businessCalls = 0;
   state.roomCalls = 0;
+  state.mfaEnabled = true;
+  state.mfaLookupFailure = false;
+  state.anyAdminMembership = role === "admin";
 }
 
 function jsonRequest(url, method, body) {
@@ -466,4 +494,104 @@ test("actual route boundaries allow administrators to reach organization busines
   );
   assert.ok(state.businessCalls >= 4, "allowed routes should reach business data queries");
   assert.equal(state.roomCalls, 1);
+});
+
+test("actual API and WebSocket boundaries block administrators without MFA", async () => {
+  asRole("admin");
+  state.mfaEnabled = false;
+
+  await expectStatus(
+    boothInventoryRoute.PUT(
+      jsonRequest("https://app.example/api/admin/booth-inventory", "PUT", {
+        organizationId: 1,
+        boothId: 100,
+        allocations: [],
+      }),
+    ),
+    403,
+    "direct privileged API access",
+  );
+  await expectStatus(
+    salesRoute.POST(
+      jsonRequest("https://app.example/api/booths/100/sales", "POST", {
+        paymentMethod: "cash",
+        items: [{ productId: 1, quantity: 1 }],
+        role: "volunteer",
+        mfaEnabled: true,
+      }),
+      boothContext(100),
+    ),
+    403,
+    "client claims cannot bypass the authoritative gate",
+  );
+  await expectStatus(
+    liveRoute.GET(websocketRequest(100), boothContext(100)),
+    403,
+    "WebSocket access",
+  );
+  assert.equal(state.businessCalls, 0);
+  assert.equal(state.roomCalls, 0);
+});
+
+test("promotion to administrator activates MFA enforcement on the next role check", async () => {
+  asRole("lead", { assigned: true });
+  state.mfaEnabled = false;
+  await expectStatus(
+    liveRoute.GET(websocketRequest(100), boothContext(100)),
+    200,
+    "non-admin access is not blocked",
+  );
+
+  state.user.role = "admin";
+  state.anyAdminMembership = true;
+  await expectStatus(
+    liveRoute.GET(websocketRequest(100), boothContext(100)),
+    403,
+    "authoritative promotion activates the gate",
+  );
+});
+
+test("authentication, organization switching, and MFA lookup failures cannot bypass enforcement", async () => {
+  asRole("admin");
+  globalThis.__CLERK_TEST_AUTH__.userId = null;
+  await expectStatus(
+    boothInventoryRoute.PUT(
+      jsonRequest("https://app.example/api/admin/booth-inventory", "PUT", {
+        organizationId: 1,
+        boothId: 100,
+        allocations: [],
+      }),
+    ),
+    403,
+    "unauthenticated users remain denied",
+  );
+  globalThis.__CLERK_TEST_AUTH__.userId = state.user.clerkUserId;
+
+  state.mfaLookupFailure = true;
+  await expectStatus(
+    boothInventoryRoute.PUT(
+      jsonRequest("https://app.example/api/admin/booth-inventory", "PUT", {
+        organizationId: 1,
+        boothId: 100,
+        allocations: [],
+      }),
+    ),
+    403,
+    "failed Clerk lookup fails closed",
+  );
+
+  asRole("lead", { assigned: true });
+  state.anyAdminMembership = true;
+  state.mfaEnabled = false;
+  await expectStatus(
+    salesRoute.POST(
+      jsonRequest("https://app.example/api/booths/100/sales", "POST", {
+        paymentMethod: "cash",
+        items: [{ productId: 1, quantity: 1 }],
+      }),
+      boothContext(100),
+    ),
+    403,
+    "an admin membership in another organization still triggers MFA",
+  );
 });

@@ -32,12 +32,23 @@ const boothRows = new Map([
 
 function createDatabase({ fail = false, rowOverride } = {}) {
   return {
-    prepare() {
+    prepare(sql) {
       if (fail) throw new Error("database unavailable");
       return {
         bind(clerkUserId, boothId) {
           return {
             async first() {
+              if (sql.includes("m.role = 'admin'")) {
+                if (rowOverride?.organizationRole !== undefined) {
+                  return rowOverride.organizationRole === "admin"
+                    ? { is_admin: 1 }
+                    : null;
+                }
+                return clerkUserId === "clerk-user-one" ||
+                  clerkUserId === "clerk-user-two"
+                  ? { is_admin: 1 }
+                  : null;
+              }
               if (rowOverride !== undefined) return rowOverride;
               const row = boothRows.get(Number(boothId));
               if (!row) return null;
@@ -56,6 +67,8 @@ function createHarness({
   userId = "clerk-user-one",
   database = createDatabase(),
   roomFailure = false,
+  mfaEnabled = true,
+  mfaLookupFailure = false,
 } = {}) {
   const webSocket = { readyState: 1 };
   const upgradeResponse = {
@@ -80,6 +93,12 @@ function createHarness({
     clerkClientFactory: (options) => {
       clerkClientOptions = options;
       return {
+        users: {
+          async getUser() {
+            if (mfaLookupFailure) throw new Error("Clerk unavailable");
+            return { twoFactorEnabled: mfaEnabled };
+          },
+        },
         async authenticateRequest(_request, options) {
           authenticateOptions = options;
           return {
@@ -197,6 +216,24 @@ test("raw Worker rejects missing authentication", async () => {
   );
   assert.equal(response.status, 401);
   assert.equal(harness.appHandlerCalls(), 0);
+});
+
+test("raw Worker fails closed for an administrator without authoritative MFA", async () => {
+  for (const harness of [
+    createHarness({ mfaEnabled: false }),
+    createHarness({ mfaLookupFailure: true }),
+  ]) {
+    const response = await harness.worker.fetch(
+      websocketRequest(8),
+      harness.env,
+      ctx,
+    );
+    assert.equal(response.status, 403);
+    assert.equal(harness.roomName(), "");
+    assert.deepEqual(await response.json(), {
+      error: "Administrator MFA enrollment is required",
+    });
+  }
 });
 
 test("raw Worker rejects cross-organization booth access", async () => {

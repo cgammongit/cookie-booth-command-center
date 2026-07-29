@@ -51,6 +51,9 @@ type ClerkClientFactory = (options: {
   secretKey: string;
   publishableKey: string;
 }) => {
+  users: {
+    getUser(userId: string): Promise<{ twoFactorEnabled?: boolean }>;
+  };
   authenticateRequest(
     request: Request,
     options: {
@@ -95,6 +98,20 @@ async function authenticateClerkLiveRequest(
   return typeof authObject.userId === "string"
     ? authObject.userId
     : null;
+}
+
+async function getClerkMfaUser(
+  clerkUserId: string,
+  env: Env,
+  clerkClientFactory: ClerkClientFactory,
+) {
+  if (!env.CLERK_SECRET_KEY || !env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+    throw new Error("Clerk configuration unavailable");
+  }
+  return clerkClientFactory({
+    secretKey: env.CLERK_SECRET_KEY,
+    publishableKey: env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+  }).users.getUser(clerkUserId);
 }
 
 // Image security config. SVG sources with .svg extension auto-skip the
@@ -169,6 +186,8 @@ export function createWorker({
                   env,
                   clerkClientFactory,
                 ),
+              getClerkUser: (clerkUserId) =>
+                getClerkMfaUser(clerkUserId, env, clerkClientFactory),
             })
           : url.pathname === "/_vinext/image"
             ? await handleImageOptimization(

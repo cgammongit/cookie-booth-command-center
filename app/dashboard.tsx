@@ -1,6 +1,7 @@
 "use client";
 
 import { UserButton } from "@clerk/nextjs";
+import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { ArchivedBooths } from "./archived-booths";
 import { BoothManagement } from "./booth-management";
@@ -851,6 +852,9 @@ export function Dashboard({
             </button>
           )}
           <span className="roleBadge">{role}</span>
+          <Link className="accountSecurityLink" href="/account/security">
+            {role === "admin" ? "Account security" : "Set up MFA"}
+          </Link>
           <UserButton />
         </nav>
       </header>

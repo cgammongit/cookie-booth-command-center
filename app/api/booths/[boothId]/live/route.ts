@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { handleBoothLiveRequest } from "../../../../../worker/booth-live-handler";
 
 export async function GET(
@@ -12,5 +12,7 @@ export async function GET(
     rawBoothId,
     env,
     authenticate: async () => (await auth()).userId,
+    getClerkUser: async (clerkUserId) =>
+      (await clerkClient()).users.getUser(clerkUserId),
   });
 }

@@ -2,8 +2,9 @@ import { auth } from "@clerk/nextjs/server";
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { memberships, organizations, users } from "../db/schema";
-import { PendingAccessPanel, SignInPanel } from "./auth-panels";
+import { MfaRequiredPanel, PendingAccessPanel, SignInPanel } from "./auth-panels";
 import { Dashboard } from "./dashboard";
+import { getAdminMfaDecision } from "../lib/admin-mfa";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,11 @@ export default async function Home() {
 
   const { userId } = await auth();
   if (!userId) return <SignInPanel />;
+
+  const mfa = await getAdminMfaDecision(userId);
+  if (mfa.required && !mfa.configured) {
+    return <MfaRequiredPanel statusUnavailable={mfa.reason === "status_unavailable"} />;
+  }
 
   const db = getDb();
   const access = await db

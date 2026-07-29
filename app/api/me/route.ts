@@ -2,10 +2,13 @@ import { auth } from "@clerk/nextjs/server";
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { memberships, organizations, users } from "../../../db/schema";
+import { adminMfaApiResponse, getAdminMfaDecision } from "../../../lib/admin-mfa";
 
 export async function GET() {
   const { userId } = await auth();
   if (!userId) return Response.json({ error: "Unauthenticated" }, { status: 401 });
+  const mfa = await getAdminMfaDecision(userId);
+  if (mfa.required && !mfa.configured) return adminMfaApiResponse();
 
   const db = getDb();
   const access = await db

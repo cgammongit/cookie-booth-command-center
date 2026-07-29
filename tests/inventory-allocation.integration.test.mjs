@@ -26,7 +26,9 @@ const state = {
 };
 
 globalThis.__CLERK_TEST_AUTH__ = { userId: state.actor.clerkUserId };
-globalThis.__CLERK_TEST_CLIENT__ = {};
+globalThis.__CLERK_TEST_CLIENT__ = {
+  users: { getUser: async () => ({ twoFactorEnabled: true }) },
+};
 
 function normalized(sql) {
   return sql.replace(/\s+/g, " ").trim().toLowerCase();
