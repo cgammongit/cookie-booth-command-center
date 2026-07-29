@@ -43,3 +43,7 @@ next-env.d.ts
 /.sites-runtime/
 /outputs/
 /work/
+/backups/
+*.d1-backup.sql
+*.d1-backup.sql.sha256
+*.d1-backup.manifest.json
