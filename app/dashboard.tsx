@@ -9,6 +9,7 @@ import { InventoryManagement } from "./inventory-management";
 import { PeopleRoles } from "./people-roles";
 import { Reports } from "./reports";
 import { TroopInventory } from "./troop-inventory";
+import { SuperAdminDashboard } from "./super-admin-dashboard";
 import { useActivePolling } from "./use-active-polling";
 import {
   useBoothLiveSync,
@@ -103,6 +104,7 @@ export function Dashboard({
   organizationId,
   organizationName,
   googleMapsApiKey,
+  isSuperAdmin,
 }: {
   displayName: string;
   role: string;
@@ -110,6 +112,7 @@ export function Dashboard({
   organizationId: number;
   organizationName: string;
   googleMapsApiKey: string;
+  isSuperAdmin: boolean;
 }) {
   const [booths, setBooths] = useState<Booth[]>([]);
   const [permissions, setPermissions] = useState<BoothPermissions>({
@@ -133,7 +136,7 @@ export function Dashboard({
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryBoothId, setInventoryBoothId] = useState<number | null>(null);
   const [view, setView] = useState<
-    "dashboard" | "people" | "booths" | "archives" | "inventory" | "troopInventory" | "reports"
+    "dashboard" | "people" | "booths" | "archives" | "inventory" | "troopInventory" | "reports" | "superAdmin"
   >("dashboard");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -840,11 +843,20 @@ export function Dashboard({
     );
   }
 
+  if (view === "superAdmin" && isSuperAdmin) {
+    return <SuperAdminDashboard onBack={() => setView("dashboard")} />;
+  }
+
   return (
     <main>
       <header>
         <div className="brand">COOKIE BOOTH <b>COMMAND CENTER</b></div>
         <nav>
+          {isSuperAdmin && (
+            <button className="superAdminButton" onClick={() => setView("superAdmin")}>
+              Super Admin
+            </button>
+          )}
           {permissions.canViewReports && <button onClick={() => setView("reports")}>Reports</button>}
           {role === "admin" && (
             <>

@@ -4,6 +4,8 @@ import { getDb } from "../db";
 import { memberships, organizations, users } from "../db/schema";
 import { PendingAccessPanel, SignInPanel } from "./auth-panels";
 import { Dashboard } from "./dashboard";
+import { isSuperAdminClerkUser } from "../lib/super-admin";
+import { SuperAdminDashboard } from "./super-admin-dashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +55,11 @@ export default async function Home() {
     .where(eq(users.clerkUserId, userId))
     .limit(1);
 
-  if (!access[0]) return <PendingAccessPanel />;
+  if (!access[0]) {
+    return isSuperAdminClerkUser(userId)
+      ? <SuperAdminDashboard />
+      : <PendingAccessPanel />;
+  }
   return (
     <Dashboard
       displayName={access[0].displayName}
@@ -62,6 +68,7 @@ export default async function Home() {
       organizationId={access[0].organizationId}
       organizationName={access[0].organizationName}
       googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ""}
+      isSuperAdmin={isSuperAdminClerkUser(userId)}
     />
   );
 }
