@@ -6,6 +6,10 @@ import {
   normalizeAllocationSubmission,
   validateAllocationDraft,
 } from "../lib/inventory-allocation";
+import {
+  assertRateLimitRetryAllowed,
+  throwApiResponseError,
+} from "../lib/client-rate-limit";
 
 type Product = {
   id: number;
@@ -202,6 +206,7 @@ export function InventoryManagement({
     setError("");
     setNotice("");
     try {
+      assertRateLimitRetryAllowed("product:create");
       const response = await fetch("/api/admin/products", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -213,7 +218,9 @@ export function InventoryManagement({
         }),
       });
       const payload = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Unable to create product");
+      if (!response.ok) {
+        throwApiResponseError(response, payload, "Unable to create product", "product:create");
+      }
       setDraft({ name: "", barcode: "", price: "6" });
       setNotice("Product added to the organization catalog.");
       await loadFoundation();
@@ -242,6 +249,7 @@ export function InventoryManagement({
     setError("");
     setNotice("");
     try {
+      assertRateLimitRetryAllowed(`product:edit:${product.id}`);
       const response = await fetch(`/api/admin/products/${product.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
@@ -254,7 +262,9 @@ export function InventoryManagement({
         }),
       });
       const payload = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Unable to update product");
+      if (!response.ok) {
+        throwApiResponseError(response, payload, "Unable to update product", `product:edit:${product.id}`);
+      }
       setEditingProductId(null);
       setNotice("Product details updated with an audit record.");
       await loadFoundation();
@@ -271,6 +281,7 @@ export function InventoryManagement({
     setError("");
     setNotice("");
     try {
+      assertRateLimitRetryAllowed(`product:toggle:${product.id}`);
       const response = await fetch(`/api/admin/products/${product.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
@@ -283,7 +294,9 @@ export function InventoryManagement({
         }),
       });
       const payload = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Unable to update product");
+      if (!response.ok) {
+        throwApiResponseError(response, payload, "Unable to update product", `product:toggle:${product.id}`);
+      }
       setNotice(`${product.name} is now ${product.active ? "inactive" : "active"}.`);
       await loadFoundation();
       if (selectedBoothId) await loadAllocations(selectedBoothId);
@@ -331,6 +344,7 @@ export function InventoryManagement({
     setError("");
     setNotice("");
     try {
+      assertRateLimitRetryAllowed(`booth-inventory:${selectedBoothId}`);
       const response = await fetch("/api/admin/booth-inventory", {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -355,7 +369,14 @@ export function InventoryManagement({
         );
         return;
       }
-      if (!response.ok) throw new Error(payload.error || "Unable to save inventory");
+      if (!response.ok) {
+        throwApiResponseError(
+          response,
+          payload,
+          "Unable to save inventory",
+          `booth-inventory:${selectedBoothId}`,
+        );
+      }
       setNotice("Booth allocation saved as an audited transfer from troop inventory.");
       await loadAllocations(selectedBoothId);
     } catch (saveError) {

@@ -1,6 +1,9 @@
 import { verifyWebhook } from "@clerk/nextjs/webhooks";
 import { env } from "cloudflare:workers";
 import type { NextRequest } from "next/server";
+import {
+  enforceVerifiedClerkWebhookRateLimit,
+} from "../../../../lib/rate-limit";
 
 type ClerkEmail = { id: string; email_address: string };
 type ClerkUserData = {
@@ -26,6 +29,22 @@ export async function POST(request: NextRequest) {
   } catch {
     return Response.json({ error: "Invalid webhook signature" }, { status: 400 });
   }
+
+  const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
+  const verifiedEventId =
+    request.headers.get("svix-id") ||
+    (typeof event === "object" &&
+    event &&
+    "data" in event &&
+    typeof (event as { data?: { id?: unknown } }).data?.id === "string"
+      ? (event as { data: { id: string } }).data.id
+      : "verified-event");
+  const webhookLimit = await enforceVerifiedClerkWebhookRateLimit({
+    env,
+    verifiedEventId,
+    requestId,
+  });
+  if (webhookLimit) return webhookLimit;
 
   const now = new Date().toISOString();
   if (event.type === "user.deleted") {

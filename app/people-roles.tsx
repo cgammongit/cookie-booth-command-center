@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  assertRateLimitRetryAllowed,
+  throwApiResponseError,
+} from "../lib/client-rate-limit";
 
 type Role = "admin" | "lead" | "volunteer" | "auditor";
 type Status = "pending" | "active" | "suspended";
@@ -192,6 +196,7 @@ export function PeopleRoles({
     setError("");
     setNotice("");
     try {
+      assertRateLimitRetryAllowed(`people:save:${person.membershipId}`);
       const response = await fetch(`/api/admin/people/${person.membershipId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
@@ -203,7 +208,9 @@ export function PeopleRoles({
         }),
       });
       const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Unable to save access");
+      if (!response.ok) {
+        throwApiResponseError(response, payload, "Unable to save access", `people:save:${person.membershipId}`);
+      }
       setNotice(`${person.displayName}'s access was updated.`);
       await load();
     } catch (saveError) {
@@ -219,6 +226,7 @@ export function PeopleRoles({
     setError("");
     setNotice("");
     try {
+      assertRateLimitRetryAllowed("invitation:create");
       const response = await fetch("/api/organization-invitations", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -231,7 +239,14 @@ export function PeopleRoles({
         }),
       });
       const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Unable to send invitation");
+      if (!response.ok) {
+        throwApiResponseError(
+          response,
+          payload,
+          "Unable to send invitation",
+          "invitation:create",
+        );
+      }
       setInviteEmail("");
       setInviteRole("volunteer");
       setInviteCanInvite(false);
@@ -254,6 +269,7 @@ export function PeopleRoles({
     setError("");
     setNotice("");
     try {
+      assertRateLimitRetryAllowed(`invitation:${action}`);
       const response = await fetch(
         `/api/organization-invitations/${invitation.id}/${action}`,
         {
@@ -264,7 +280,12 @@ export function PeopleRoles({
       );
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) {
-        throw new Error(payload.error || `Unable to ${action} invitation`);
+        throwApiResponseError(
+          response,
+          payload,
+          `Unable to ${action} invitation`,
+          `invitation:${action}`,
+        );
       }
       setNotice(
         action === "resend"

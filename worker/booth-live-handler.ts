@@ -1,6 +1,13 @@
 import { authorizeBoothLiveAccess } from "../lib/booth-live-access";
+import {
+  consumeRateLimit,
+  rateLimitedResponse,
+  RATE_LIMIT_POLICIES,
+  type RateLimitEnv,
+} from "../lib/rate-limit";
+import { safeRoute } from "../lib/security";
 
-export type BoothLiveEnv = {
+export type BoothLiveEnv = RateLimitEnv & {
   DB: D1Database;
   BOOTH_LIVE_ROOMS: DurableObjectNamespace<
     import("./booth-live-room").BoothLiveRoom
@@ -50,6 +57,31 @@ export async function handleBoothLiveRequest({
     const access = await authorizeBoothLiveAccess(env.DB, clerkUserId, boothId);
     if (!access) {
       return errorResponse("You do not have access to this booth", 403);
+    }
+
+    const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
+    const identities = [
+      {
+        value: `org:${access.organizationId}:user:${access.userId}:booth:${boothId}`,
+        policy: RATE_LIMIT_POLICIES.websocket,
+      },
+      {
+        value: `org:${access.organizationId}:booth:${boothId}:aggregate`,
+        policy: { ...RATE_LIMIT_POLICIES.websocket, limit: 120 },
+      },
+    ];
+    for (const identity of identities) {
+      const decision = await consumeRateLimit({
+        env,
+        routeClass: "websocket",
+        identity: identity.value,
+        requestId,
+        route: safeRoute(request),
+        policy: identity.policy,
+      });
+      if (!decision.allowed) {
+        return rateLimitedResponse(requestId, decision.retryAfterSeconds);
+      }
     }
 
     const room = env.BOOTH_LIVE_ROOMS.getByName(

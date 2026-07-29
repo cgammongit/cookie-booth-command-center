@@ -37,6 +37,9 @@ if (!worker.default || typeof worker.default.fetch !== "function") {
 if (typeof worker.BoothLiveRoom !== "function") {
   throw new Error("dist/server/index.js must export the BoothLiveRoom Durable Object");
 }
+if (typeof worker.RateLimitCoordinator !== "function") {
+  throw new Error("dist/server/index.js must export the RateLimitCoordinator Durable Object");
+}
 NODE
 
-echo "Validated Sites artifact: Worker fetch, BoothLiveRoom, and hosting manifest are present."
+echo "Validated Sites artifact: Worker fetch, Durable Objects, and hosting manifest are present."
