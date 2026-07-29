@@ -222,5 +222,23 @@ export const inventoryLedger=sqliteTable("inventory_ledger",{
 },t=>[
  index("inventory_ledger_org_created").on(t.organizationId,t.createdAt),
  index("inventory_ledger_product_created").on(t.productId,t.createdAt),
- index("inventory_ledger_booth").on(t.boothId),
+  index("inventory_ledger_booth").on(t.boothId),
+]);
+
+export const superAdminAuditLog=sqliteTable("super_admin_audit_log",{
+ id:integer("id").primaryKey({autoIncrement:true}),
+ actorClerkUserId:text("actor_clerk_user_id").notNull(),
+ actorUserId:integer("actor_user_id"),
+ actorDisplayName:text("actor_display_name").notNull(),
+ action:text("action",{enum:["organization_data_purged","organization_data_purge_failed"]}).notNull(),
+ targetOrganizationId:integer("target_organization_id").notNull(),
+ targetOrganizationName:text("target_organization_name").notNull(),
+ reason:text("reason"),
+ deletedCountsJson:text("deleted_counts_json").notNull(),
+ outcome:text("outcome",{enum:["success","failure"]}).notNull(),
+ requestId:text("request_id").notNull(),
+ createdAt:text("created_at").notNull(),
+},t=>[
+ index("super_admin_audit_created").on(t.createdAt),
+ index("super_admin_audit_target_created").on(t.targetOrganizationId,t.createdAt),
 ]);
