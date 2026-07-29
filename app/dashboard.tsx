@@ -14,6 +14,10 @@ import {
   type LiveSyncStatus,
 } from "./use-booth-live-sync";
 import type { BoothLifecycleStatus } from "../lib/booth-status";
+import {
+  assertRateLimitRetryAllowed,
+  throwApiResponseError,
+} from "../lib/client-rate-limit";
 
 type Booth = {
   id: number;
@@ -158,7 +162,9 @@ export function Dashboard({
         signal,
       });
       const payload = (await response.json()) as BoothResponse;
-      if (!response.ok) throw new Error(payload.error || "Unable to load booths");
+      if (!response.ok) {
+        throwApiResponseError(response, payload, "Unable to load booths", "polling");
+      }
       setBooths(payload.booths);
       setSelected((current) => {
         if (!current) return current;
@@ -214,7 +220,14 @@ export function Dashboard({
         paymentTotals?: PaymentTotals;
         error?: string;
       };
-      if (!response.ok) throw new Error(payload.error || "Unable to load booth inventory");
+      if (!response.ok) {
+        throwApiResponseError(
+          response,
+          payload,
+          "Unable to load booth inventory",
+          "polling",
+        );
+      }
       if (payload.booth) {
         setSelected((current) => current?.id === payload.booth?.id
           ? { ...current, ...payload.booth } as Booth
@@ -304,6 +317,7 @@ export function Dashboard({
     setSaleSubmitting(true);
     setError("");
     try {
+      assertRateLimitRetryAllowed(`sale:${selected.id}`);
       const response = await fetch(`/api/booths/${selected.id}/sales`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -320,7 +334,7 @@ export function Dashboard({
         error?: string;
       };
       if (!response.ok || !payload.sale) {
-        throw new Error(payload.error || "Unable to finish sale");
+        throwApiResponseError(response, payload, "Unable to finish sale", `sale:${selected.id}`);
       }
       setSelectedInventory((current) => current.map((product) => {
         const sold = saleQuantities[product.productId] || 0;
@@ -366,6 +380,7 @@ export function Dashboard({
     setReconciliationSubmitting(true);
     setError("");
     try {
+      assertRateLimitRetryAllowed(`reconciliation:${selected.id}`);
       const response = await fetch(`/api/booths/${selected.id}/reconciliation`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -383,7 +398,12 @@ export function Dashboard({
         error?: string;
       };
       if (!response.ok || !payload.reconciliation) {
-        throw new Error(payload.error || "Unable to close and reconcile booth");
+        throwApiResponseError(
+          response,
+          payload,
+          "Unable to close and reconcile booth",
+          `reconciliation:${selected.id}`,
+        );
       }
       setReconciliation(null);
       setSelected(null);
@@ -405,6 +425,7 @@ export function Dashboard({
     setCreating(true);
     setError("");
     try {
+      assertRateLimitRetryAllowed("booth:create");
       const response = await fetch("/api/booths", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -421,7 +442,9 @@ export function Dashboard({
         }),
       });
       const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Unable to create booth");
+      if (!response.ok) {
+        throwApiResponseError(response, payload, "Unable to create booth", "booth:create");
+      }
       setShowCreate(false);
       setBoothDraft((current) => ({
         ...current,

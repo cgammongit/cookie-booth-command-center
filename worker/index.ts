@@ -11,12 +11,16 @@ import {
   shouldCheckCsrf,
 } from "../lib/security";
 import { handleBoothLiveRequest } from "./booth-live-handler";
+import { enforceWorkerRateLimit } from "./rate-limit-handler";
 
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
   BOOTH_LIVE_ROOMS: DurableObjectNamespace<
     import("./booth-live-room").BoothLiveRoom
+  >;
+  RATE_LIMITER: DurableObjectNamespace<
+    import("./rate-limit-coordinator").RateLimitCoordinator
   >;
   CLERK_SECRET_KEY?: string;
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?: string;
@@ -131,6 +135,29 @@ export function createWorker({
 
       try {
         const liveMatch = url.pathname.match(BOOTH_LIVE_PATH);
+        const limited = liveMatch
+          ? null
+          : await enforceWorkerRateLimit({
+              request: securedRequest,
+              env,
+              requestId,
+              authenticate: (rateLimitedRequest) =>
+                authenticateClerkLiveRequest(
+                  rateLimitedRequest,
+                  env,
+                  clerkClientFactory,
+                ),
+            });
+        if (limited) {
+          const headers = applySecurityHeaders(
+            new Headers(limited.headers),
+            requestId,
+          );
+          return new Response(limited.body, {
+            status: limited.status,
+            headers,
+          });
+        }
         const response = liveMatch
           ? await handleBoothLiveRequest({
               request: securedRequest,
@@ -191,4 +218,10 @@ export function createWorker({
 const worker = createWorker();
 
 export { BoothLiveRoom } from "./booth-live-room";
+export { RateLimitCoordinator } from "./rate-limit-coordinator";
+export {
+  classifyRateLimitedRoute,
+  enforceWorkerRateLimit,
+} from "./rate-limit-handler";
+export { enforceVerifiedClerkWebhookRateLimit } from "../lib/rate-limit";
 export default worker;

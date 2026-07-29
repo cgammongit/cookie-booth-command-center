@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import { rateLimitWaitSeconds } from "../lib/client-rate-limit";
 
 export function useActivePolling(
   task: (signal: AbortSignal) => Promise<void>,
@@ -52,9 +53,10 @@ export function useActivePolling(
     const schedule = () => {
       if (!active || document.visibilityState !== "visible") return;
       window.clearTimeout(timer);
+      const retryDelay = rateLimitWaitSeconds("polling") * 1000;
       timer = window.setTimeout(() => {
         void refresh().finally(schedule);
-      }, intervalMs);
+      }, Math.max(intervalMs, retryDelay));
     };
     const synchronize = () => {
       window.clearTimeout(timer);

@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  assertRateLimitRetryAllowed,
+  throwApiResponseError,
+} from "../lib/client-rate-limit";
 
 type BoothStatus = "draft" | "scheduled" | "live" | "closed";
 type ManagedBooth = {
@@ -178,6 +182,7 @@ export function BoothManagement({
     setError("");
     setNotice("");
     try {
+      assertRateLimitRetryAllowed(`assignment:${selected.id}:${person.userId}`);
       const response = await fetch("/api/admin/booth-assignments", {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -189,7 +194,9 @@ export function BoothManagement({
         }),
       });
       const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Unable to update access");
+      if (!response.ok) {
+        throwApiResponseError(response, payload, "Unable to update access", `assignment:${selected.id}:${person.userId}`);
+      }
       setNotice(
         `${person.displayName} was ${assigned ? "assigned to" : "removed from"} ${selected.name}.`,
       );
@@ -217,6 +224,7 @@ export function BoothManagement({
     setError("");
     setNotice("");
     try {
+      assertRateLimitRetryAllowed(`archive:${selected.id}`);
       const response = await fetch(`/api/admin/booths/${selected.id}/archive`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -226,7 +234,9 @@ export function BoothManagement({
         error?: string;
         alertCreated?: boolean;
       };
-      if (!response.ok) throw new Error(payload.error || "Unable to archive booth");
+      if (!response.ok) {
+        throwApiResponseError(response, payload, "Unable to archive booth", `archive:${selected.id}`);
+      }
       setNotice(
         payload.alertCreated
           ? `${selected.name} was archived and an activity alert was created.`

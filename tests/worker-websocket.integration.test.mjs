@@ -69,6 +69,7 @@ function createHarness({
   let authenticateOptions;
   let clerkClientOptions;
   let roomName = "";
+  const rateLimitCounters = new Map();
   const worker = createWorker({
     appHandler: {
       async fetch() {
@@ -101,6 +102,21 @@ function createHarness({
           async fetch() {
             if (roomFailure) throw new Error("room unavailable");
             return upgradeResponse;
+          },
+        };
+      },
+    },
+    RATE_LIMITER: {
+      getByName(name) {
+        return {
+          async fetch(_url, init) {
+            const { limit } = JSON.parse(init.body);
+            const count = rateLimitCounters.get(name) || 0;
+            if (count >= limit) {
+              return Response.json({ allowed: false, retryAfterSeconds: 41 });
+            }
+            rateLimitCounters.set(name, count + 1);
+            return Response.json({ allowed: true, retryAfterSeconds: 0 });
           },
         };
       },
@@ -150,6 +166,26 @@ test("authorized raw Worker request preserves the original 101 WebSocket respons
     secretKey: "configured",
     publishableKey: "configured",
   });
+});
+
+test("WebSocket reconnect attempts respect the authorized connection limit", async () => {
+  const harness = createHarness();
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const response = await harness.worker.fetch(
+      websocketRequest(8),
+      harness.env,
+      ctx,
+    );
+    assert.equal(response.status, 101);
+  }
+  const limited = await harness.worker.fetch(
+    websocketRequest(8),
+    harness.env,
+    ctx,
+  );
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get("retry-after"), "41");
+  assert.match(limited.headers.get("x-request-id") || "", /^[0-9a-f-]{36}$/);
 });
 
 test("raw Worker rejects missing authentication", async () => {

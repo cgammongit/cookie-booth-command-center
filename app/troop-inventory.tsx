@@ -5,6 +5,10 @@ import {
   formatInventoryMovementDisplayQuantity,
   getInventoryMovementDisplayQuantity,
 } from "../lib/inventory-movement-display";
+import {
+  assertRateLimitRetryAllowed,
+  throwApiResponseError,
+} from "../lib/client-rate-limit";
 import { useActivePolling } from "./use-active-polling";
 import { useBoothLiveSync } from "./use-booth-live-sync";
 
@@ -82,6 +86,7 @@ export function TroopInventory({
 
   const load = useCallback(async (signal: AbortSignal) => {
     try {
+      assertRateLimitRetryAllowed("troop-inventory");
       const response = await fetch(
         `/api/admin/troop-inventory?organizationId=${organizationId}`,
         { cache: "no-store", signal },
@@ -91,7 +96,14 @@ export function TroopInventory({
         movements?: Movement[];
         error?: string;
       };
-      if (!response.ok) throw new Error(payload.error || "Unable to load troop inventory");
+      if (!response.ok) {
+        throwApiResponseError(
+          response,
+          payload,
+          "Unable to load troop inventory",
+          "polling",
+        );
+      }
       setBalances(payload.balances || []);
       setMovements(payload.movements || []);
       setSyncWarning("");
@@ -141,7 +153,14 @@ export function TroopInventory({
         }),
       });
       const payload = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Unable to record stock movement");
+      if (!response.ok) {
+        throwApiResponseError(
+          response,
+          payload,
+          "Unable to record stock movement",
+          "troop-inventory",
+        );
+      }
       setDraft((current) => ({ ...current, quantity: "", reference: "", reason: "" }));
       setNotice("Stock movement recorded in the troop inventory ledger.");
       await refresh(true);
