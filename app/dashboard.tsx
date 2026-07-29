@@ -7,6 +7,7 @@ import { BoothManagement } from "./booth-management";
 import { GooglePlaceField, type SelectedPlace } from "./google-place-field";
 import { InventoryManagement } from "./inventory-management";
 import { PeopleRoles } from "./people-roles";
+import { Reports } from "./reports";
 import { TroopInventory } from "./troop-inventory";
 import { useActivePolling } from "./use-active-polling";
 import {
@@ -132,7 +133,7 @@ export function Dashboard({
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryBoothId, setInventoryBoothId] = useState<number | null>(null);
   const [view, setView] = useState<
-    "dashboard" | "people" | "booths" | "archives" | "inventory" | "troopInventory"
+    "dashboard" | "people" | "booths" | "archives" | "inventory" | "troopInventory" | "reports"
   >("dashboard");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -828,12 +829,23 @@ export function Dashboard({
     </main>
   );
 
+  if (view === "reports") {
+    return (
+      <Reports
+        organizationId={organizationId}
+        organizationName={organizationName}
+        role={role}
+        onBack={() => setView("dashboard")}
+      />
+    );
+  }
+
   return (
     <main>
       <header>
         <div className="brand">COOKIE BOOTH <b>COMMAND CENTER</b></div>
         <nav>
-          {permissions.canViewReports && <button>Reports</button>}
+          {permissions.canViewReports && <button onClick={() => setView("reports")}>Reports</button>}
           {role === "admin" && (
             <>
               <button onClick={() => setView("booths")}>Booth management</button>
