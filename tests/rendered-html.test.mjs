@@ -88,6 +88,29 @@ test("troop inventory shows expandable active-booth allocation details", async (
   assert.match(inventory, /booth\.quantity/);
 });
 
+test("troop inventory history uses the movement display dimension helper", async () => {
+  const troopInventory = await readFile(
+    new URL("../app/troop-inventory.tsx", import.meta.url),
+    "utf8",
+  );
+  const displayHelper = await readFile(
+    new URL("../lib/inventory-movement-display.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(troopInventory, /getInventoryMovementDisplayQuantity\(movement\)/);
+  assert.match(troopInventory, /formatInventoryMovementDisplayQuantity\(movement\)/);
+  assert.doesNotMatch(
+    troopInventory,
+    /className=\{Number\(movement\.totalDelta\)/,
+  );
+  assert.match(
+    displayHelper,
+    /"booth_allocation"[\s\S]*"booth_return"/,
+  );
+  assert.match(displayHelper, /movement\.availableDelta[\s\S]*movement\.totalDelta/);
+});
+
 test("inventory allocation UI validates activity minimums without locking active booths", async () => {
   const inventoryManagement = await readFile(
     path.join(process.cwd(), "app", "inventory-management.tsx"),
