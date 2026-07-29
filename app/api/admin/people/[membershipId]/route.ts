@@ -3,7 +3,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "../../../../../db";
 import { memberships } from "../../../../../db/schema";
-import { requireOrganizationAdmin } from "../../../../../lib/access";
+import { requireOrganizationPermission } from "../../../../../lib/access";
 
 const roleSchema = z.enum(["admin", "lead", "volunteer", "auditor"]);
 const statusSchema = z.enum(["pending", "active", "suspended"]);
@@ -46,7 +46,10 @@ export async function PATCH(
   }
 
   const requested = parsed.data;
-  const authorization = await requireOrganizationAdmin(requested.organizationId);
+  const authorization = await requireOrganizationPermission(
+    requested.organizationId,
+    "people.manage",
+  );
   if (authorization.error) return authorization.error;
 
   const [existing] = await getDb()

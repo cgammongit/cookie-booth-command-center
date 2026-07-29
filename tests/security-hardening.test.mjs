@@ -101,9 +101,11 @@ test("supplemental source assertions retain server authorization and tenant-scop
     ),
   );
 
-  assert.match(source.inventory, /requireOrganizationAdmin/);
+  assert.match(source.inventory, /requireOrganizationPermission/);
+  assert.match(source.inventory, /"inventory\.manage"/);
   assert.match(source.inventory, /WHERE id = \? AND organization_id = \?/);
-  assert.match(source.troopInventory, /requireOrganizationAdmin/);
+  assert.match(source.troopInventory, /requireOrganizationPermission/);
+  assert.match(source.troopInventory, /"troopInventory\.manage"/);
   assert.match(source.troopInventory, /WHERE organization_id = \? AND product_id = \?/);
   assert.match(source.sales, /requireBoothAccess\(boothId, "operate"\)/);
   assert.match(source.sales, /authorization\.access\.organizationId/);

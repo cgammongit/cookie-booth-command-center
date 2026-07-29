@@ -3,12 +3,16 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { assignments, booths, memberships, users } from "../db/schema";
 import {
-  canAdministerOrganization,
   canManageInvitations,
   evaluateBoothPermission,
   type BoothPermission,
   type OrganizationRole,
 } from "./authorization-policy";
+import {
+  hasOrganizationPermission,
+  isOrganizationRole,
+  type OrganizationPermission,
+} from "./organization-permissions";
 
 export type { OrganizationRole } from "./authorization-policy";
 export type MembershipStatus = "pending" | "active" | "suspended";
@@ -51,10 +55,19 @@ export async function getOrganizationAccess(
     .where(eq(users.clerkUserId, clerkUserId))
     .limit(1);
 
-  return access ? { clerkUserId, ...access } : null;
+  return access && isOrganizationRole(access.role)
+    ? { clerkUserId, ...access }
+    : null;
 }
 
 export async function requireOrganizationAdmin(organizationId: number) {
+  return requireOrganizationPermission(organizationId, "people.manage");
+}
+
+export async function requireOrganizationPermission(
+  organizationId: number,
+  permission: OrganizationPermission,
+) {
   const access = await getOrganizationAccess(organizationId);
   if (!access) {
     return {
@@ -62,7 +75,10 @@ export async function requireOrganizationAdmin(organizationId: number) {
       access: null,
     };
   }
-  if (!canAdministerOrganization(access.role, organizationId, access.organizationId)) {
+  if (
+    organizationId !== access.organizationId ||
+    !hasOrganizationPermission(access.role, permission)
+  ) {
     return {
       error: Response.json(
         { error: "Administrator access is required" },
@@ -129,7 +145,7 @@ export async function getBoothAccess(boothId: number): Promise<BoothAccess | nul
   if (!access) return null;
 
   let assignmentRole: BoothAccess["assignmentRole"] = null;
-  if (access.role === "lead" || access.role === "volunteer") {
+  if (!hasOrganizationPermission(access.role, "booth.viewOrganizationWide")) {
     const [assignment] = await getDb()
       .select({ role: assignments.role })
       .from(assignments)
@@ -153,18 +169,16 @@ export async function getBoothAccess(boothId: number): Promise<BoothAccess | nul
     canOperate:
       !booth.archivedAt &&
       booth.status !== "closed" &&
-      (access.role === "admin" ||
-        access.role === "lead" ||
-        access.role === "volunteer"),
+      hasOrganizationPermission(access.role, "booth.operate"),
     canManage:
       !booth.archivedAt &&
       booth.status !== "closed" &&
-      access.role === "admin",
+      hasOrganizationPermission(access.role, "booth.manage"),
     canReconcile:
       !booth.archivedAt &&
       booth.status !== "closed" &&
-      (access.role === "admin" || access.role === "lead"),
-    canViewReports: access.role === "admin" || access.role === "auditor",
+      hasOrganizationPermission(access.role, "booth.reconcile"),
+    canViewReports: hasOrganizationPermission(access.role, "report.view"),
   };
 }
 
@@ -181,8 +195,10 @@ export async function requireBoothAccess(
         boothOrganizationId: access!.organizationId,
         organizationRole: access!.role,
         assigned:
-          access!.role === "admin" ||
-          access!.role === "auditor" ||
+          hasOrganizationPermission(
+            access!.role,
+            "booth.viewOrganizationWide",
+          ) ||
           Boolean(access!.assignmentRole),
         archived: access!.archived,
         closed: access!.closed,

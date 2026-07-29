@@ -2,6 +2,10 @@ import {
   evaluateBoothPermission,
   type OrganizationRole,
 } from "./authorization-policy";
+import {
+  hasOrganizationPermission,
+  isOrganizationRole,
+} from "./organization-permissions";
 
 type BoothLiveAccess = {
   organizationId: number;
@@ -16,13 +20,6 @@ type BoothLiveAccessRow = {
   status: string;
   archivedAt: string | null;
 };
-
-const ORGANIZATION_ROLES = new Set<OrganizationRole>([
-  "admin",
-  "lead",
-  "volunteer",
-  "auditor",
-]);
 
 export async function authorizeBoothLiveAccess(
   database: D1Database,
@@ -54,7 +51,7 @@ export async function authorizeBoothLiveAccess(
 
   if (
     !row ||
-    !ORGANIZATION_ROLES.has(row.organizationRole as OrganizationRole)
+    !isOrganizationRole(row.organizationRole)
   ) {
     return null;
   }
@@ -66,7 +63,8 @@ export async function authorizeBoothLiveAccess(
       boothOrganizationId: row.organizationId,
       organizationRole: role,
       assigned:
-        role === "admin" || role === "auditor" || Boolean(row.assignmentRole),
+        hasOrganizationPermission(role, "booth.viewOrganizationWide") ||
+        Boolean(row.assignmentRole),
       archived: Boolean(row.archivedAt),
       closed: row.status === "closed",
     },

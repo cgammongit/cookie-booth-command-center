@@ -8,7 +8,7 @@ import {
   memberships,
   users,
 } from "../../../../db/schema";
-import { requireOrganizationAdmin } from "../../../../lib/access";
+import { requireOrganizationPermission } from "../../../../lib/access";
 import { listOrganizationInvitations } from "../../../../lib/invitations";
 
 const querySchema = z.object({
@@ -24,7 +24,10 @@ export async function GET(request: Request) {
   }
 
   const { organizationId } = parsed.data;
-  const authorization = await requireOrganizationAdmin(organizationId);
+  const authorization = await requireOrganizationPermission(
+    organizationId,
+    "people.manage",
+  );
   if (authorization.error) return authorization.error;
 
   const db = getDb();

@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
-import { requireOrganizationAdmin } from "../../../../../../lib/access";
+import { requireOrganizationPermission } from "../../../../../../lib/access";
 import { broadcastBoothEvent } from "../../../../../../lib/booth-live";
 
 const archiveSchema = z.object({
@@ -32,7 +32,10 @@ export async function POST(
     );
   }
 
-  const authorization = await requireOrganizationAdmin(parsed.data.organizationId);
+  const authorization = await requireOrganizationPermission(
+    parsed.data.organizationId,
+    "booth.archive",
+  );
   if (authorization.error) return authorization.error;
 
   const booth = await env.DB.prepare(`

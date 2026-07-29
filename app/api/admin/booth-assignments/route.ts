@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
-import { requireOrganizationAdmin } from "../../../../lib/access";
+import { requireOrganizationPermission } from "../../../../lib/access";
 
 const bodySchema = z
   .object({
@@ -23,7 +23,10 @@ export async function PUT(request: Request) {
     return Response.json({ error: "Invalid booth assignment" }, { status: 400 });
   }
 
-  const authorization = await requireOrganizationAdmin(parsed.data.organizationId);
+  const authorization = await requireOrganizationPermission(
+    parsed.data.organizationId,
+    "assignment.manage",
+  );
   if (authorization.error) return authorization.error;
 
   const target = await env.DB.prepare(`
