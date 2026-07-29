@@ -5,15 +5,42 @@ import { pathToFileURL } from "node:url";
 import {
   assertRehearsalConfirmation,
   assertRehearsalTarget,
+  npxExecutable,
+  parseFlagValue,
   requiredRehearsalConfirmation,
 } from "./lib.mjs";
 
-export function buildRehearsalCommand(target, exportPath) {
+export function buildRehearsalCommand(
+  target,
+  exportPath,
+  platform = process.platform,
+) {
   assertRehearsalTarget(target);
   if (typeof exportPath !== "string" || !exportPath.endsWith(".sql")) {
     throw new Error("an explicit SQL export file is required");
   }
-  return ["wrangler", "d1", "execute", target, "--remote", "--file", exportPath];
+  return {
+    executable: npxExecutable(platform),
+    args: [
+      "--no-install",
+      "wrangler",
+      "d1",
+      "execute",
+      target,
+      "--remote",
+      "--file",
+      exportPath,
+    ],
+  };
+}
+
+export function parseRehearsalArgs(argv) {
+  return {
+    target: parseFlagValue(argv, "--target", { required: true }),
+    exportPath: parseFlagValue(argv, "--file", { required: true }),
+    confirmation: parseFlagValue(argv, "--confirm"),
+    execute: argv.includes("--execute"),
+  };
 }
 
 export async function runRehearsal({
@@ -34,24 +61,18 @@ export async function runRehearsal({
   }
   assertRehearsalConfirmation(target, confirmation);
   await access(exportPath);
-  const result = runner("npx", command, { stdio: "inherit", shell: true });
+  const result = runner(command.executable, command.args, { stdio: "inherit" });
   if (result.status !== 0) throw new Error("rehearsal import failed");
   return { execute: true, target };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2);
-  const value = (name) => args[args.indexOf(name) + 1];
-  runRehearsal({
-    target: value("--target"),
-    exportPath: value("--file"),
-    confirmation: value("--confirm"),
-    execute: args.includes("--execute"),
-  })
+  runRehearsal(parseRehearsalArgs(args))
     .then((result) => {
       if (!result.execute) {
         console.log("Plan only; this script never creates or deletes a database.");
-        console.log(["npx", ...result.command].join(" "));
+        console.log(JSON.stringify(result.command, null, 2));
         console.log(`Execution requires: --execute --confirm ${result.requiredConfirmation}`);
       } else {
         console.log("Rehearsal import completed; run verification before declaring success.");

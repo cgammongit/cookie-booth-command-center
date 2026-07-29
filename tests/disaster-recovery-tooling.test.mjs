@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -15,15 +15,27 @@ const {
   assertRehearsalTarget,
   createBackupManifest,
   evaluateVerification,
+  npxExecutable,
+  parseFlagValue,
   sanitizedVerificationOutput,
   sha256File,
 } = await import(libUrl.href);
 const backupUrl = new URL("../scripts/dr/backup-d1.mjs", import.meta.url);
 backupUrl.searchParams.set("test", nonce);
-const { buildBackupCommand, runBackup } = await import(backupUrl.href);
+const { buildBackupCommand, parseBackupArgs, runBackup } = await import(backupUrl.href);
 const restoreUrl = new URL("../scripts/dr/restore-d1-rehearsal.mjs", import.meta.url);
 restoreUrl.searchParams.set("test", nonce);
-const { buildRehearsalCommand, runRehearsal } = await import(restoreUrl.href);
+const {
+  buildRehearsalCommand,
+  parseRehearsalArgs,
+  runRehearsal,
+} = await import(restoreUrl.href);
+const verifyUrl = new URL("../scripts/dr/verify-d1-rehearsal.mjs", import.meta.url);
+verifyUrl.searchParams.set("test", nonce);
+const {
+  parseVerificationArgs,
+  runVerification,
+} = await import(verifyUrl.href);
 
 const validSnapshot = JSON.parse(
   await readFile(new URL("./fixtures/dr-valid-snapshot.json", import.meta.url), "utf8"),
@@ -50,16 +62,49 @@ test("empty, malformed, broad, and production rehearsal targets are rejected", (
 });
 
 test("backup command requires an explicit remote database and safe output", () => {
-  assert.deepEqual(buildBackupCommand("approved-source-db", "backups/export.sql"), [
-    "wrangler",
-    "d1",
-    "export",
-    "approved-source-db",
-    "--remote",
-    "--output",
-    "backups/export.sql",
-  ]);
+  assert.deepEqual(
+    buildBackupCommand("approved-source-db", "backups/export.sql", "linux"),
+    {
+      executable: "npx",
+      args: [
+        "--no-install",
+        "wrangler",
+        "d1",
+        "export",
+        "approved-source-db",
+        "--remote",
+        "--output",
+        "backups/export.sql",
+      ],
+    },
+  );
+  assert.equal(npxExecutable("win32"), "npx.cmd");
+  assert.equal(npxExecutable("linux"), "npx");
   assert.throws(() => buildBackupCommand("", "backups/export.sql"));
+});
+
+test("flag parsing rejects missing, duplicate, and option-shaped values", () => {
+  assert.throws(() => parseBackupArgs([]), /--database requires/);
+  assert.throws(
+    () => parseBackupArgs(["--database", "--execute"]),
+    /--database requires/,
+  );
+  assert.throws(
+    () => parseBackupArgs(["--database", "one", "--database", "two"]),
+    /only once/,
+  );
+  assert.throws(
+    () => parseRehearsalArgs(["--target", "safe-dr-test", "--file", "--execute"]),
+    /--file requires/,
+  );
+  assert.throws(
+    () => parseVerificationArgs(["--target", "--snapshot", "fixture.json"]),
+    /--target requires/,
+  );
+  assert.equal(
+    parseFlagValue(["--file", "literal path.sql"], "--file", { required: true }),
+    "literal path.sql",
+  );
 });
 
 test("backup metadata and SHA-256 checksum generation are deterministic", async () => {
@@ -109,12 +154,14 @@ test("restore rehearsal executes only the explicit non-production target", async
   const sql = join(directory, "fixture.sql");
   await writeFile(sql, "CREATE TABLE fixture(id INTEGER);\n", "utf8");
   const target = "cookie-command-center-dr-rehearsal";
-  assert.deepEqual(buildRehearsalCommand(target, sql).slice(0, 5), [
+  assert.deepEqual(buildRehearsalCommand(target, sql, "linux").args.slice(0, 7), [
+    "--no-install",
     "wrangler",
     "d1",
     "execute",
     target,
     "--remote",
+    "--file",
   ]);
   let invoked;
   await runRehearsal({
@@ -127,7 +174,7 @@ test("restore rehearsal executes only the explicit non-production target", async
       return { status: 0 };
     },
   });
-  assert.equal(invoked.command[3], target);
+  assert.equal(invoked.command[4], target);
   assert.equal(invoked.command.includes(PRODUCTION_DATABASE_NAME), false);
   await assert.rejects(() =>
     runRehearsal({
@@ -140,6 +187,68 @@ test("restore rehearsal executes only the explicit non-production target", async
       },
     }),
   );
+});
+
+test("hostile filesystem paths remain one literal argument without shell execution", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ccc-dr-hostile-"));
+  const hostileDirectory = join(root, "space & semicolon; parens() $(secondary)");
+  const marker = join(root, "secondary-command-ran");
+  const backupInvocations = [];
+  const backup = await runBackup({
+    database: "approved-source-db",
+    outputDirectory: hostileDirectory,
+    execute: true,
+    now: new Date("2026-07-29T00:00:00.000Z"),
+    runner(executable, args, options) {
+      backupInvocations.push({ executable, args, options });
+      const outputPath = args[args.indexOf("--output") + 1];
+      writeFileSync(outputPath, "CREATE TABLE safe_fixture(id INTEGER);\n");
+      return { status: 0 };
+    },
+    sourceCommitProvider: () => "abc123",
+    wranglerVersionProvider: () => "4.114.0",
+  });
+  assert.equal(backupInvocations.length, 1);
+  assert.equal(backupInvocations[0].args.includes(backup.exportPath), true);
+  assert.equal("shell" in backupInvocations[0].options, false);
+
+  const hostileSql = join(
+    hostileDirectory,
+    "restore path &;() $(secondary).sql",
+  );
+  await writeFile(hostileSql, "CREATE TABLE fixture(id INTEGER);\n", "utf8");
+  let restoreInvocation;
+  const target = "cookie-command-center-dr-rehearsal";
+  await runRehearsal({
+    target,
+    exportPath: hostileSql,
+    confirmation: `RESTORE_TO_${target}`,
+    execute: true,
+    runner(executable, args, options) {
+      restoreInvocation = { executable, args, options };
+      return { status: 0 };
+    },
+  });
+  assert.equal(restoreInvocation.args.filter((value) => value === hostileSql).length, 1);
+  assert.equal("shell" in restoreInvocation.options, false);
+  await assert.rejects(() => access(marker));
+});
+
+test("verification accepts ordinary and hostile local snapshot paths", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ccc-dr-verify-"));
+  const ordinary = join(root, "snapshot.json");
+  const hostile = join(root, "snapshot &;() $(secondary).json");
+  const contents = `${JSON.stringify(validSnapshot)}\n`;
+  await writeFile(ordinary, contents, "utf8");
+  await writeFile(hostile, contents, "utf8");
+  for (const snapshotPath of [ordinary, hostile]) {
+    const result = await runVerification({
+      target: "cookie-command-center-dr-rehearsal",
+      snapshotPath,
+      execute: false,
+    });
+    assert.equal(result.ok, true);
+  }
 });
 
 test("verification detects missing tables, count mismatches, broken relationships, and inventory", () => {
@@ -176,6 +285,7 @@ test("tool sources contain no Time Travel restore, deployment, delete, or migrat
     ),
   );
   const combined = sources.join("\n");
+  assert.doesNotMatch(combined, /shell\s*:\s*true/);
   assert.doesNotMatch(combined, /time-travel\s+restore/i);
   assert.doesNotMatch(combined, /wrangler["',\s]+deploy/i);
   assert.doesNotMatch(combined, /d1["',\s]+delete/i);

@@ -7,30 +7,41 @@ import {
   assertDatabaseName,
   assertSafeBackupDirectory,
   createBackupManifest,
+  npxExecutable,
+  parseFlagValue,
   sha256File,
   timestampForFilename,
 } from "./lib.mjs";
 
 export function parseBackupArgs(argv) {
-  const value = (name) => argv[argv.indexOf(name) + 1];
   return {
-    database: value("--database"),
-    outputDirectory: value("--output-dir") || "backups",
+    database: parseFlagValue(argv, "--database", { required: true }),
+    outputDirectory: parseFlagValue(argv, "--output-dir", {
+      defaultValue: "backups",
+    }),
     execute: argv.includes("--execute"),
   };
 }
 
-export function buildBackupCommand(database, outputPath) {
+export function buildBackupCommand(
+  database,
+  outputPath,
+  platform = process.platform,
+) {
   assertDatabaseName(database);
-  return [
-    "wrangler",
-    "d1",
-    "export",
-    database,
-    "--remote",
-    "--output",
-    outputPath,
-  ];
+  return {
+    executable: npxExecutable(platform),
+    args: [
+      "--no-install",
+      "wrangler",
+      "d1",
+      "export",
+      database,
+      "--remote",
+      "--output",
+      outputPath,
+    ],
+  };
 }
 
 export async function runBackup({
@@ -42,9 +53,8 @@ export async function runBackup({
   sourceCommitProvider = () =>
     execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
   wranglerVersionProvider = () =>
-    execFileSync("npx", ["wrangler", "--version"], {
+    execFileSync(npxExecutable(), ["--no-install", "wrangler", "--version"], {
       encoding: "utf8",
-      shell: true,
     }).trim(),
 }) {
   assertDatabaseName(database);
@@ -55,7 +65,7 @@ export async function runBackup({
   if (!execute) return { execute: false, command, exportPath };
 
   await mkdir(directory, { recursive: true });
-  const result = runner("npx", command, { stdio: "inherit", shell: true });
+  const result = runner(command.executable, command.args, { stdio: "inherit" });
   if (result.status !== 0) throw new Error("Wrangler D1 export failed");
   const checksum = await sha256File(exportPath);
   const sourceCommit = sourceCommitProvider();
@@ -86,7 +96,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     .then((result) => {
       if (!result.execute) {
         console.log("Plan only. Re-run with --execute after review:");
-        console.log(["npx", ...result.command].join(" "));
+        console.log(JSON.stringify(result.command, null, 2));
       } else {
         console.log(`Export and checksum metadata created in ${options.outputDirectory}.`);
       }

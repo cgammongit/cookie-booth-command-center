@@ -5,6 +5,8 @@ import { pathToFileURL } from "node:url";
 import {
   assertRehearsalTarget,
   evaluateVerification,
+  npxExecutable,
+  parseFlagValue,
   sanitizedVerificationOutput,
 } from "./lib.mjs";
 
@@ -72,12 +74,31 @@ function rowsFromWranglerJson(output) {
 
 function executeReadOnly(target, query, runner) {
   const result = runner(
-    "npx",
-    ["wrangler", "d1", "execute", target, "--remote", "--json", "--command", query],
-    { encoding: "utf8", shell: true },
+    npxExecutable(),
+    [
+      "--no-install",
+      "wrangler",
+      "d1",
+      "execute",
+      target,
+      "--remote",
+      "--json",
+      "--command",
+      query,
+    ],
+    { encoding: "utf8" },
   );
   if (result.status !== 0) throw new Error("read-only verification query failed");
   return rowsFromWranglerJson(result.stdout);
+}
+
+export function parseVerificationArgs(argv) {
+  return {
+    target: parseFlagValue(argv, "--target", { required: true }),
+    snapshotPath: parseFlagValue(argv, "--snapshot"),
+    expectedCountsPath: parseFlagValue(argv, "--expected-counts"),
+    execute: argv.includes("--execute"),
+  };
 }
 
 export async function runVerification({
@@ -128,13 +149,7 @@ export async function runVerification({
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2);
-  const value = (name) => args[args.indexOf(name) + 1];
-  runVerification({
-    target: value("--target"),
-    snapshotPath: value("--snapshot"),
-    expectedCountsPath: value("--expected-counts"),
-    execute: args.includes("--execute"),
-  })
+  runVerification(parseVerificationArgs(args))
     .then((result) => {
       if (!result.execute && result.commands) {
         console.log("Plan only. Read-only aggregate queries will run against the rehearsal target.");

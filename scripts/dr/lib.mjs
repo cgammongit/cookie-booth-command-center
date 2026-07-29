@@ -11,6 +11,30 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const REHEARSAL_MARKER = /(^|[-_])(dr|rehearsal|restore-test|sandbox|staging|test)([-_]|$)/i;
 const PRODUCTION_MARKER = /(^|[-_])(prod|production)([-_]|$)/i;
 
+export function npxExecutable(platform = process.platform) {
+  return platform === "win32" ? "npx.cmd" : "npx";
+}
+
+export function parseFlagValue(
+  argv,
+  flag,
+  { required = false, defaultValue } = {},
+) {
+  const positions = argv
+    .map((value, index) => (value === flag ? index : -1))
+    .filter((index) => index >= 0);
+  if (positions.length > 1) throw new Error(`${flag} may be supplied only once`);
+  if (!positions.length) {
+    if (required) throw new Error(`${flag} requires an explicit value`);
+    return defaultValue;
+  }
+  const value = argv[positions[0] + 1];
+  if (value === undefined || value === "" || value.startsWith("--")) {
+    throw new Error(`${flag} requires an explicit value`);
+  }
+  return value;
+}
+
 export function assertDatabaseName(value, label = "database") {
   if (typeof value !== "string" || !DATABASE_NAME.test(value)) {
     throw new Error(
@@ -182,4 +206,3 @@ export function sanitizedVerificationOutput(result) {
     counts: result.counts,
   }, null, 2);
 }
-
