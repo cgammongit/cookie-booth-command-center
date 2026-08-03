@@ -66,6 +66,11 @@ class TestStatement {
 
   async first() {
     const sql = normalized(this.sql);
+    if (sql.includes("scout_assignment_revision") && sql.includes("from booths where id = ? and organization_id = ?")) {
+      const booth = booths.get(Number(this.params[0]));
+      return booth && booth.organizationId === Number(this.params[1]) ? { ...booth, startsAt: "2026-01-01T18:00:00.000Z", endsAt: "2026-01-01T20:00:00.000Z", revision: "" } : null;
+    }
+    if (sql.includes("from assignments where booth_id = ? and user_id = ?")) return state.assigned ? { id: 1 } : null;
     if (sql.includes("from booths b") && sql.includes("inner join memberships m")) {
       const [clerkUserId, boothId] = this.params;
       const booth = booths.get(Number(boothId));
@@ -328,9 +333,12 @@ test("actual route boundaries enforce volunteer restrictions and assignment", as
   );
   await expectStatus(
     boothScoutsRoute.PUT(jsonRequest("https://app.example/api/admin/booth-scouts", "PUT", { organizationId: 1, boothId: 100, revision: "", assignments: [] })),
-    403,
-    "volunteers cannot manage scout attendance",
+    409,
+    "assigned volunteers may pass the booth-scoped scout roster boundary",
   );
+  asRole("volunteer", { assigned: false });
+  await expectStatus(boothScoutsRoute.PUT(jsonRequest("https://app.example/api/admin/booth-scouts", "PUT", { organizationId: 1, boothId: 100, revision: "", assignments: [] })), 403, "unassigned volunteers cannot manage the scout roster");
+  asRole("volunteer");
   await expectStatus(
     scoutCreditRoute.GET(new Request("https://app.example/api/booths/100/scout-credit"), boothContext(100)),
     403,

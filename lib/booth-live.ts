@@ -6,6 +6,7 @@ export type BoothLiveTopic =
   | "payments"
   | "lifecycle"
   | "reconciliation"
+  | "attendance"
   | "closure";
 
 export type BoothLiveEvent =

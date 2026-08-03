@@ -146,9 +146,9 @@ test("scout management UI uses a semantic table and is available on authorized l
   assert.match(directory, /<tr key=\{scout\.id\}>/);
   assert.match(directory, /colSpan=\{4\}>No scouts have been added yet/);
   assert.match(directory, />\{scout\.archivedAt \? "Restore" : "Archive"\}<\/button>/);
-  assert.match(dashboard, /permissions\.canCreateBooths && \([\s\S]*<BoothScoutAttendance organizationId=\{organizationId\} booth=\{selected\}/);
-  assert.match(attendance, /Save scout attendance/);
-  assert.match(attendance, /type="datetime-local"/);
+  assert.match(dashboard, /permissions\.canCreateBooths \|\| role === "volunteer"[\s\S]*<BoothScoutAttendance key=\{selected\.scoutAssignmentRevision\} organizationId=\{organizationId\} booth=\{selected\}/);
+  assert.match(attendance, /Save scout changes/);
+  assert.doesNotMatch(attendance, /type="datetime-local"/);
 });
 
 test("reports expose four naturally sized tabs without assigning scout sales the flexible grid track", async () => {
@@ -489,7 +489,7 @@ test("websocket clients recover missed revisions and retain polling fallback", a
 });
 
 test("successful booth mutations broadcast authoritative event topics", async () => {
-  const [sale, inventory, reconciliation, archive] = await Promise.all([
+  const [sale, inventory, reconciliation, archive, attendance] = await Promise.all([
     readFile(new URL("../app/api/booths/[boothId]/sales/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/admin/booth-inventory/route.ts", import.meta.url), "utf8"),
     readFile(
@@ -500,6 +500,7 @@ test("successful booth mutations broadcast authoritative event topics", async ()
       new URL("../app/api/admin/booths/[boothId]/archive/route.ts", import.meta.url),
       "utf8",
     ),
+    readFile(new URL("../app/api/admin/booth-scouts/route.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(sale, /await env\.DB\.batch\(statements\)[\s\S]*\["sales", "inventory", "payments"\]/);
@@ -509,6 +510,23 @@ test("successful booth mutations broadcast authoritative event topics", async ()
     /await env\.DB\.batch\(statements\)[\s\S]*"reconciliation", "closure"/,
   );
   assert.match(archive, /await env\.DB\.batch\(statements\)[\s\S]*\["lifecycle"\]/);
+  assert.match(attendance, /await env\.DB\.batch\(statements\)[\s\S]*\["attendance"\]/);
   assert.match(sale, /\.catch\(\(\) => undefined\)/);
   assert.match(reconciliation, /\.catch\(\(\) => undefined\)/);
+});
+
+test("booth scout roster renders a time sheet above an accessible compact selector", async () => {
+  const source = await readFile(new URL("../app/booth-scout-attendance.tsx", import.meta.url), "utf8");
+  const timeSheet = source.indexOf('className="scoutTimeSheet boothScoutPanel"');
+  const attendance = source.indexOf('className="scoutAttendance boothScoutPanel"');
+  assert.ok(timeSheet >= 0 && attendance > timeSheet);
+  assert.match(source, /<th scope="col">Name<\/th><th scope="col">Start Time<\/th><th scope="col">End Time<\/th>/);
+  assert.doesNotMatch(source, /type="date"|type="datetime-local"/);
+  assert.match(source, /<select aria-label=\{`\$\{item\.name\} start time`\}/);
+  assert.match(source, /aria-haspopup="listbox"/);
+  assert.match(source, /aria-multiselectable="true"/);
+  assert.match(source, /role="option" aria-selected=\{selected\}/);
+  assert.match(source, /selected \? "✓" : ""/);
+  assert.match(source, /No active scouts are available\. Add scouts in Scout Directory/);
+  assert.match(source, /15 \* 60 \* 1000/);
 });

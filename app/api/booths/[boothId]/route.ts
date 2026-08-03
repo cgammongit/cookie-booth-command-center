@@ -20,7 +20,8 @@ export async function GET(
     SELECT id, organization_id AS organizationId, name, address,
       location_name AS locationName, google_place_id AS googlePlaceId,
       latitude, longitude,
-      starts_at AS startsAt, ends_at AS endsAt, status
+      starts_at AS startsAt, ends_at AS endsAt, status,
+      scout_assignment_revision AS scoutAssignmentRevision
     FROM booths WHERE id = ?
   `).bind(boothId).first(),
     env.DB.prepare(`
