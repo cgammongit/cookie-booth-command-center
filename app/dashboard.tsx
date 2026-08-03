@@ -22,7 +22,11 @@ import {
   assertRateLimitRetryAllowed,
   throwApiResponseError,
 } from "../lib/client-rate-limit";
-import { RequestOwnership } from "../lib/request-ownership";
+import {
+  HydrationSession,
+  isAbortError,
+  RequestOwnership,
+} from "../lib/request-ownership";
 
 type Booth = {
   id: number;
@@ -141,7 +145,15 @@ export function Dashboard({
   const [scoutCreditPreview, setScoutCreditPreview] = useState<ScoutCreditPreview | null>(null);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [boothActivation, setBoothActivation] = useState(0);
+  const [hydrationSettledActivation, setHydrationSettledActivation] = useState(0);
+  const [hydratedActivation, setHydratedActivation] = useState(0);
   const boothRequestOwnershipRef = useRef(new RequestOwnership());
+  const detailRequestGenerationRef = useRef(0);
+  const initialHydrationRef = useRef<{
+    activation: number;
+    promise: Promise<void>;
+    session: HydrationSession;
+  } | null>(null);
   const [inventoryBoothId, setInventoryBoothId] = useState<number | null>(null);
   const [view, setView] = useState<
     "dashboard" | "people" | "booths" | "archives" | "inventory" | "troopInventory" | "reports" | "superAdmin"
@@ -170,6 +182,8 @@ export function Dashboard({
   const selectedBoothId = selected?.id;
 
   const activateBooth = useCallback((booth: Booth) => {
+    initialHydrationRef.current?.session.cancel("superseded-activation");
+    initialHydrationRef.current = null;
     const activation = boothRequestOwnershipRef.current.activate();
     setBoothActivation(activation);
     setSelectedInventory([]);
@@ -180,6 +194,8 @@ export function Dashboard({
   }, []);
 
   const leaveBooth = useCallback(() => {
+    initialHydrationRef.current?.session.cancel("left-booth");
+    initialHydrationRef.current = null;
     boothRequestOwnershipRef.current.invalidate();
     setSelected(null);
     setSelectedInventory([]);
@@ -250,10 +266,18 @@ export function Dashboard({
       .catch((reason) => setError(reason instanceof Error ? reason.message : "Unable to load scouts"));
   }, [organizationId, permissions.canCreateBooths, showCreate]);
 
-  const loadSelectedBooth = useCallback(async (signal: AbortSignal) => {
+  const loadSelectedBooth = useCallback(async (
+    signal: AbortSignal,
+    propagateAbort = false,
+  ) => {
     if (!selectedBoothId) return;
     const requestBoothId = selectedBoothId;
     const requestActivation = boothActivation;
+    const requestGeneration = detailRequestGenerationRef.current + 1;
+    detailRequestGenerationRef.current = requestGeneration;
+    const requestOwnsView = () =>
+      detailRequestGenerationRef.current === requestGeneration &&
+      boothRequestOwnershipRef.current.owns(requestActivation, signal);
     try {
       const response = await fetch(`/api/booths/${requestBoothId}`, {
         cache: "no-store",
@@ -265,7 +289,7 @@ export function Dashboard({
         paymentTotals?: PaymentTotals;
         error?: string;
       };
-      if (!boothRequestOwnershipRef.current.owns(requestActivation, signal)) return;
+      if (!requestOwnsView()) return;
       if (!response.ok) {
         throwApiResponseError(
           response,
@@ -288,9 +312,15 @@ export function Dashboard({
       });
       setInventoryLoading(false);
       setDetailSyncWarning("");
+      setHydratedActivation(requestActivation);
+      setHydrationSettledActivation(requestActivation);
     } catch (loadError) {
-      if (!boothRequestOwnershipRef.current.owns(requestActivation, signal)) return;
+      if (signal.aborted || (propagateAbort && isAbortError(loadError))) {
+        throw loadError;
+      }
+      if (!requestOwnsView()) return;
       setInventoryLoading(false);
+      setHydrationSettledActivation(requestActivation);
       setDetailSyncWarning(
         loadError instanceof Error
           ? `Live synchronization paused: ${loadError.message}`
@@ -303,15 +333,48 @@ export function Dashboard({
     enabled:
       view === "dashboard" &&
       Boolean(selectedBoothId) &&
-      liveSyncStatus !== "connected",
+      hydrationSettledActivation === boothActivation &&
+      (hydratedActivation !== boothActivation || liveSyncStatus !== "connected"),
   });
   useEffect(() => {
     if (!selectedBoothId || !boothActivation) return;
-    void refreshSelectedBooth(true);
-  }, [boothActivation, refreshSelectedBooth, selectedBoothId]);
+    const activation = boothActivation;
+    const session = new HydrationSession(activation);
+    const promise = session
+      .run((signal) => loadSelectedBooth(signal, true), 1)
+      .then((outcome) => {
+        if (
+          initialHydrationRef.current?.promise !== promise ||
+          !boothRequestOwnershipRef.current.owns(activation)
+        ) return;
+        setHydrationSettledActivation(activation);
+        if (outcome.status === "abort-retries-exhausted") {
+          setInventoryLoading(false);
+          setDetailSyncWarning(
+            "Live synchronization was interrupted. Retrying with polling.",
+          );
+        }
+      })
+      .finally(() => {
+        if (initialHydrationRef.current?.promise === promise) {
+          initialHydrationRef.current = null;
+        }
+      });
+    initialHydrationRef.current = { activation, promise, session };
+    return () => {
+      if (initialHydrationRef.current?.promise === promise) {
+        initialHydrationRef.current = null;
+      }
+      session.cancel("activation-ended");
+    };
+  }, [boothActivation, loadSelectedBooth, organizationId, selectedBoothId]);
   useBoothLiveSync({
     boothIds: view === "dashboard" && selectedBoothId ? [selectedBoothId] : [],
     onRefresh: async () => {
+      const hydration = initialHydrationRef.current;
+      if (hydration?.activation === boothActivation) {
+        await hydration.promise;
+      }
       await Promise.all([refreshBooths(true), refreshSelectedBooth(true)]);
     },
     onStatusChange: setLiveSyncStatus,
