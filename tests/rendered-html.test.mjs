@@ -530,6 +530,14 @@ test("booth scout roster renders a time sheet above an accessible compact select
   assert.match(selector, /selected \? "✓" : ""/);
   assert.match(selector, /event\.key === "Escape"/);
   assert.match(selector, /document\.addEventListener\("pointerdown", outside\)/);
+  assert.match(selector, /createPortal\(menu, document\.body\)/);
+  assert.match(selector, /aria-owns=\{open \? menuId : undefined\}/);
+  assert.match(selector, /!menuRef\.current\?\.contains\(target\)/);
+  assert.match(selector, /window\.addEventListener\("scroll", schedulePosition, true\)/);
+  assert.match(selector, /window\.addEventListener\("resize", schedulePosition\)/);
+  assert.match(selector, /new ResizeObserver\(schedulePosition\)/);
+  assert.match(selector, /observer\?\.disconnect\(\)/);
+  assert.match(selector, /window\.cancelAnimationFrame\(frame\)/);
   assert.match(selector, /type="button"/);
   assert.match(source, /No active scouts are available\. Add scouts in Scout Directory/);
   assert.match(source, /15 \* 60 \* 1000/);
@@ -551,6 +559,6 @@ test("booth creation uses the shared compact scout multi-select", async () => {
   assert.match(selector, /selectedNames\.length === 1 \? selectedNames\[0\]/);
   assert.match(selector, /`\$\{selectedNames\.length\} scouts selected`/);
   assert.match(selector, />Close<\/button>/);
-  assert.match(styles, /max-height:min\(320px,55vh\);overflow-y:auto/);
+  assert.match(styles, /\.scoutSelectMenu\{position:fixed;z-index:120;box-sizing:border-box;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain/);
   assert.match(styles, /overflow-wrap:anywhere/);
 });
