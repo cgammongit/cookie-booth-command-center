@@ -259,8 +259,8 @@ export function Reports({
             </p>
           </section>
           <div className="reportTabs noPrint">
-            <button className={view === "gross" ? "active" : ""} onClick={() => setView("gross")}>Gross & payments</button>
-            <button className={view === "items" ? "active" : ""} onClick={() => setView("items")}>Itemized cookies</button>
+            <button className={view === "gross" ? "active" : ""} onClick={() => setView("gross")}>Gross Sales</button>
+            <button className={view === "items" ? "active" : ""} onClick={() => setView("items")}>Itemized Cookie Sales</button>
             <button className={view === "reconciliation" ? "active" : ""} onClick={() => setView("reconciliation")}>Reconciliation</button>
             <button className={view === "scouts" ? "active" : ""} onClick={() => setView("scouts")}>Total Cookie Sales per Scout</button>
             <span />

@@ -31,13 +31,13 @@ test("reporting uses authoritative sales, payment, item, and reconciliation data
   assert.match(route, /FROM reconciliations r/);
 });
 
-test("reports support multi-booth selection, dates, CSV, print, and three views", () => {
+test("reports support multi-booth selection, dates, CSV, print, and four views", () => {
   assert.match(reports, /boothIds: boothIds\.join\(","\)/);
   assert.match(reports, /type="date"/);
   assert.match(reports, /Export CSV/);
   assert.match(reports, /window\.print\(\)/);
-  assert.match(reports, /Gross & payments/);
-  assert.match(reports, /Itemized cookies/);
+  assert.match(reports, /Gross Sales/);
+  assert.match(reports, /Itemized Cookie Sales/);
   assert.match(reports, /Reconciliation/);
   assert.match(dashboard, /setView\("reports"\)/);
 });
