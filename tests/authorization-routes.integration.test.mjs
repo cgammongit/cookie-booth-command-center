@@ -142,6 +142,7 @@ const [
   invitationsRoute,
   scoutsRoute,
   boothScoutsRoute,
+  scoutCreditRoute,
 ] = await Promise.all([
   import("../app/api/booths/[boothId]/route.ts"),
   import("../app/api/booths/[boothId]/live/route.ts"),
@@ -152,6 +153,7 @@ const [
   import("../app/api/organization-invitations/route.ts"),
   import("../app/api/admin/scouts/route.ts"),
   import("../app/api/admin/booth-scouts/route.ts"),
+  import("../app/api/booths/[boothId]/scout-credit/route.ts"),
 ]);
 
 function asRole(role, { canInviteUsers = false, assigned = true } = {}) {
@@ -328,6 +330,11 @@ test("actual route boundaries enforce volunteer restrictions and assignment", as
     boothScoutsRoute.PUT(jsonRequest("https://app.example/api/admin/booth-scouts", "PUT", { organizationId: 1, boothId: 100, revision: "", assignments: [] })),
     403,
     "volunteers cannot manage scout attendance",
+  );
+  await expectStatus(
+    scoutCreditRoute.GET(new Request("https://app.example/api/booths/100/scout-credit"), boothContext(100)),
+    403,
+    "volunteers cannot inspect reconciliation credit",
   );
   await expectStatus(
     liveRoute.GET(websocketRequest(100), boothContext(100)),

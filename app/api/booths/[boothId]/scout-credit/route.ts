@@ -5,7 +5,7 @@ import { calculateBoothScoutCredit, sumRational } from "../../../../../lib/scout
 export async function GET(_request: Request, context: { params: Promise<{ boothId: string }> }) {
   const boothId = Number((await context.params).boothId);
   if (!Number.isInteger(boothId) || boothId < 1) return Response.json({ error: "Invalid booth" }, { status: 400 });
-  const authorization = await requireBoothAccess(boothId, "view");
+  const authorization = await requireBoothAccess(boothId, "reconcile");
   if (authorization.error) return authorization.error;
   const booth = await env.DB.prepare("SELECT starts_at AS startsAt, ends_at AS endsAt FROM booths WHERE id = ? AND organization_id = ?")
     .bind(boothId, authorization.access.organizationId).first<{ startsAt: string; endsAt: string }>();
