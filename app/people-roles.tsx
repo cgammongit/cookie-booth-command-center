@@ -543,12 +543,6 @@ export function PeopleRoles({
                         >
                           <option value="active">Active</option>
                           <option
-                            value="pending"
-                            disabled={administratorProtected}
-                          >
-                            Pending
-                          </option>
-                          <option
                             value="suspended"
                             disabled={administratorProtected}
                           >
