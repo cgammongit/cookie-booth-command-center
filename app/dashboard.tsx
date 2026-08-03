@@ -4,6 +4,7 @@ import { UserButton } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArchivedBooths } from "./archived-booths";
 import { BoothManagement } from "./booth-management";
+import { BoothScoutAttendance } from "./booth-scout-attendance";
 import { GooglePlaceField, type SelectedPlace } from "./google-place-field";
 import { InventoryManagement } from "./inventory-management";
 import { PeopleRoles } from "./people-roles";
@@ -665,6 +666,11 @@ export function Dashboard({
         )}
         {inventoryLoading && <div className="loadingState">Loading live inventory…</div>}
       </section>
+      {permissions.canCreateBooths && (
+        <div className="liveBoothScoutManagement">
+          <BoothScoutAttendance organizationId={organizationId} booth={selected} />
+        </div>
+      )}
       {saleStep && (
         <div className="modalBackdrop" role="presentation" onMouseDown={(event) => {
           if (event.target === event.currentTarget && !saleSubmitting) setSaleStep(null);

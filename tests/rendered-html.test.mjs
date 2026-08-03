@@ -133,6 +133,39 @@ test("member access options exclude Pending while invitations retain pending act
   assert.match(invitations, />\s*Cancel\s*</);
 });
 
+test("scout management UI uses a semantic table and is available on authorized live booths", async () => {
+  const [directory, dashboard, attendance] = await Promise.all([
+    readFile(new URL("../app/scout-directory.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/booth-scout-attendance.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(directory, /<table className="peopleTable scoutDirectoryTable">/);
+  assert.match(directory, /<thead><tr><th>Scout<\/th><th>Age level<\/th><th>Status<\/th><th>Action<\/th><\/tr><\/thead>/);
+  assert.match(directory, /<tbody>/);
+  assert.match(directory, /<tr key=\{scout\.id\}>/);
+  assert.match(directory, /colSpan=\{4\}>No scouts have been added yet/);
+  assert.match(directory, />\{scout\.archivedAt \? "Restore" : "Archive"\}<\/button>/);
+  assert.match(dashboard, /permissions\.canCreateBooths && \([\s\S]*<BoothScoutAttendance organizationId=\{organizationId\} booth=\{selected\}/);
+  assert.match(attendance, /Save scout attendance/);
+  assert.match(attendance, /type="datetime-local"/);
+});
+
+test("reports expose four naturally sized tabs without assigning scout sales the flexible grid track", async () => {
+  const [reports, styles] = await Promise.all([
+    readFile(new URL("../app/reports.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(reports, /Gross Sales/);
+  assert.match(reports, /Itemized Cookie Sales/);
+  assert.match(reports, />Reconciliation<\/button>/);
+  assert.match(reports, /Total Cookie Sales per Scout<\/button>/);
+  assert.match(styles, /\.reportTabs\{display:flex;flex-wrap:wrap/);
+  assert.match(styles, /\.reportTabs>button\{flex:0 0 auto\}/);
+  assert.doesNotMatch(styles, /\.reportTabs\{display:grid;grid-template-columns:auto auto auto 1fr/);
+});
+
 test("inventory allocation UI validates activity minimums without locking active booths", async () => {
   const inventoryManagement = await readFile(
     path.join(process.cwd(), "app", "inventory-management.tsx"),

@@ -59,15 +59,19 @@ export function ScoutDirectory({ organizationId }: { organizationId: number }) {
       <label>Age level<select value={ageLevel} onChange={(event) => setAgeLevel(event.target.value as ScoutAgeLevel)}>{SCOUT_AGE_LEVELS.map((level) => <option key={level}>{level}</option>)}</select></label>
       <button className="primary" disabled={saving}>Add scout</button>
     </form>
-    <div className="peopleTable">
-      <div className="peopleTableHead"><span>Scout</span><span>Age level</span><span>Status</span><span>Action</span></div>
-      {scouts.map((scout) => <div key={scout.id}>
-        <input aria-label={`Name for ${scout.name}`} defaultValue={scout.name} disabled={saving} onBlur={(event) => { if (event.target.value.trim() !== scout.name) void update(scout, { name: event.target.value.trim() }); }} />
-        <select aria-label={`Age level for ${scout.name}`} value={scout.ageLevel} disabled={saving} onChange={(event) => void update(scout, { ageLevel: event.target.value as ScoutAgeLevel })}>{SCOUT_AGE_LEVELS.map((level) => <option key={level}>{level}</option>)}</select>
-        <span>{scout.archivedAt ? "Archived" : "Active"}</span>
-        <button disabled={saving} onClick={() => void update(scout, { archived: !scout.archivedAt })}>{scout.archivedAt ? "Restore" : "Archive"}</button>
-      </div>)}
-      {!scouts.length && <p className="loadingState">No scouts have been added yet.</p>}
+    <div className="peopleTableWrap">
+      <table className="peopleTable scoutDirectoryTable">
+        <thead><tr><th>Scout</th><th>Age level</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody>
+          {scouts.map((scout) => <tr key={scout.id}>
+            <td><input aria-label={`Name for ${scout.name}`} defaultValue={scout.name} disabled={saving} onBlur={(event) => { if (event.target.value.trim() !== scout.name) void update(scout, { name: event.target.value.trim() }); }} /></td>
+            <td><select aria-label={`Age level for ${scout.name}`} value={scout.ageLevel} disabled={saving} onChange={(event) => void update(scout, { ageLevel: event.target.value as ScoutAgeLevel })}>{SCOUT_AGE_LEVELS.map((level) => <option key={level}>{level}</option>)}</select></td>
+            <td><span className={`invitationStatus ${scout.archivedAt ? "expired" : "accepted"}`}>{scout.archivedAt ? "Archived" : "Active"}</span></td>
+            <td><button disabled={saving} onClick={() => void update(scout, { archived: !scout.archivedAt })}>{scout.archivedAt ? "Restore" : "Archive"}</button></td>
+          </tr>)}
+          {!scouts.length && <tr><td className="loadingState" colSpan={4}>No scouts have been added yet.</td></tr>}
+        </tbody>
+      </table>
     </div>
   </section>;
 }
