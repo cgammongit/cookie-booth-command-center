@@ -5,6 +5,7 @@ import {
   assertRateLimitRetryAllowed,
   throwApiResponseError,
 } from "../lib/client-rate-limit";
+import { isAdministratorProtectedFromActor } from "../lib/admin-role-protection";
 
 type Role = "admin" | "lead" | "volunteer" | "auditor";
 type Status = "pending" | "active" | "suspended";
@@ -46,6 +47,7 @@ type PeopleResponse = {
   audit: AuditEntry[];
   invitations: Invitation[];
   currentUserId: number;
+  canManageProtectedAdministrators: boolean;
 };
 
 type Invitation = {
@@ -492,6 +494,14 @@ export function PeopleRoles({
                     (draft.role === "lead" && draft.canInviteUsers) !==
                       (person.role === "lead" && person.canInviteUsers);
                   const isCurrentUser = person.userId === data.currentUserId;
+                  const administratorProtected =
+                    isAdministratorProtectedFromActor({
+                      actorUserId: data.currentUserId,
+                      targetUserId: person.userId,
+                      targetRole: person.role,
+                      actorMayManageProtectedAdministrators:
+                        data.canManageProtectedAdministrators,
+                    });
                   return (
                     <tr key={person.membershipId}>
                       <td>
@@ -506,6 +516,7 @@ export function PeopleRoles({
                         <select
                           aria-label={`${person.displayName} role`}
                           value={draft.role}
+                          disabled={administratorProtected}
                           onChange={(event) => {
                             const role = event.target.value as Role;
                             updateDraft(person.membershipId, {
@@ -531,8 +542,18 @@ export function PeopleRoles({
                           }
                         >
                           <option value="active">Active</option>
-                          <option value="pending">Pending</option>
-                          <option value="suspended">Suspended</option>
+                          <option
+                            value="pending"
+                            disabled={administratorProtected}
+                          >
+                            Pending
+                          </option>
+                          <option
+                            value="suspended"
+                            disabled={administratorProtected}
+                          >
+                            Suspended
+                          </option>
                         </select>
                       </td>
                       <td>
@@ -558,6 +579,11 @@ export function PeopleRoles({
                         >
                           {savingId === person.membershipId ? "Saving…" : "Save"}
                         </button>
+                        {administratorProtected && (
+                          <small className="permissionNote">
+                            Administrators are protected from access reductions by other administrators.
+                          </small>
+                        )}
                       </td>
                     </tr>
                   );

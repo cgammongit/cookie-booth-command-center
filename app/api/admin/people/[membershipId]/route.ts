@@ -4,6 +4,8 @@ import { z } from "zod";
 import { getDb } from "../../../../../db";
 import { memberships } from "../../../../../db/schema";
 import { requireOrganizationPermission } from "../../../../../lib/access";
+import { canManageProtectedAdministrators } from "../../../../../lib/admin-role-override";
+import { isAdministratorAccessReduction } from "../../../../../lib/admin-role-protection";
 
 const roleSchema = z.enum(["admin", "lead", "volunteer", "auditor"]);
 const statusSchema = z.enum(["pending", "active", "suspended"]);
@@ -82,6 +84,27 @@ export async function PATCH(
     status: requested.status,
     canInviteUsers: requested.role === "lead" && requested.canInviteUsers,
   };
+
+  const reducesAnotherAdministrator = isAdministratorAccessReduction({
+    actorUserId: authorization.access.userId,
+    targetUserId: existing.userId,
+    targetRole: existing.role,
+    targetStatus: existing.status,
+    nextRole: normalized.role,
+    nextStatus: normalized.status,
+  });
+
+  if (
+    reducesAnotherAdministrator &&
+    !(await canManageProtectedAdministrators(
+      authorization.access.clerkUserId,
+    ))
+  ) {
+    return Response.json(
+      { error: "Administrators cannot reduce another administrator's access" },
+      { status: 403 },
+    );
+  }
 
   const removesActiveAdmin =
     existing.role === "admin" &&
