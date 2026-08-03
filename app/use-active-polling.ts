@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { rateLimitWaitSeconds } from "../lib/client-rate-limit";
+import { OwnedAbortRequestSlot } from "../lib/request-ownership";
 
 export function useActivePolling(
   task: (signal: AbortSignal) => Promise<void>,
@@ -14,38 +15,41 @@ export function useActivePolling(
   } = {},
 ) {
   const taskRef = useRef(task);
-  const inFlightRef = useRef<Promise<void> | null>(null);
-  const controllerRef = useRef<AbortController | null>(null);
+  const enabledRef = useRef(enabled);
+  const ownerRef = useRef(0);
+  const requestSlotRef = useRef(new OwnedAbortRequestSlot());
+  const forcePendingRef = useRef(false);
 
   useEffect(() => {
     taskRef.current = task;
-  }, [task]);
+    enabledRef.current = enabled;
+  }, [enabled, task]);
+
+  const cancelRequest = useCallback((owner?: number) => {
+    requestSlotRef.current.cancel(owner);
+  }, []);
 
   const refresh = useCallback((force = false) => {
-    if ((!enabled && !force) || document.visibilityState !== "visible") {
+    if (document.visibilityState !== "visible") {
+      if (force) forcePendingRef.current = true;
       return Promise.resolve();
     }
-    if (inFlightRef.current) return inFlightRef.current;
-
-    const controller = new AbortController();
-    controllerRef.current = controller;
-    const request = taskRef.current(controller.signal)
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) throw error;
-      })
-      .finally(() => {
-        if (controllerRef.current === controller) controllerRef.current = null;
-        if (inFlightRef.current === request) inFlightRef.current = null;
-      });
-    inFlightRef.current = request;
-    return request;
-  }, [enabled]);
+    if (!enabledRef.current && !force) return Promise.resolve();
+    forcePendingRef.current = false;
+    return requestSlotRef.current.start(ownerRef.current, async (signal) => {
+      try {
+        await taskRef.current(signal);
+      } catch (error) {
+        if (!signal.aborted) throw error;
+      }
+    });
+  }, []);
 
   useEffect(() => {
-    if (!enabled) {
-      controllerRef.current?.abort();
-      return;
-    }
+    const owner = ownerRef.current + 1;
+    ownerRef.current = owner;
+    forcePendingRef.current = false;
+    cancelRequest();
 
     let timer: number | undefined;
     let active = true;
@@ -58,34 +62,35 @@ export function useActivePolling(
         void refresh().finally(schedule);
       }, Math.max(intervalMs, retryDelay));
     };
-    const synchronize = () => {
+    const synchronize = (force = false) => {
       window.clearTimeout(timer);
       if (!active || document.visibilityState !== "visible") return;
-      void refresh().finally(schedule);
+      void refresh(force).finally(schedule);
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        const finishingRequest = inFlightRef.current;
+        const finishingRequest = requestSlotRef.current.promise;
+        const force = forcePendingRef.current;
         if (finishingRequest) {
-          void finishingRequest.finally(synchronize);
+          void finishingRequest.finally(() => synchronize(force));
         } else {
-          synchronize();
+          synchronize(force);
         }
       } else {
         window.clearTimeout(timer);
-        controllerRef.current?.abort();
+        cancelRequest(owner);
       }
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    synchronize();
+    if (enabled) synchronize();
     return () => {
       active = false;
       window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      controllerRef.current?.abort();
+      cancelRequest(owner);
     };
-  }, [enabled, intervalMs, refresh]);
+  }, [cancelRequest, enabled, intervalMs, refresh]);
 
   return refresh;
 }
