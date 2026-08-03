@@ -99,6 +99,7 @@ export const booths=sqliteTable("booths",{
  archivedByUserId:integer("archived_by_user_id"),
  archiveReason:text("archive_reason"),
  archiveKind:text("archive_kind",{enum:["manual"]}),
+ scoutAssignmentRevision:text("scout_assignment_revision").notNull().default(""),
 },t=>[
  index("booth_organization_status_start").on(t.organizationId,t.status,t.startsAt),
  index("booth_google_place").on(t.googlePlaceId),
@@ -112,6 +113,50 @@ export const assignments=sqliteTable("assignments",{
 },t=>[
  uniqueIndex("assignment_booth_user").on(t.boothId,t.userId),
  index("assignment_user").on(t.userId),
+]);
+export const scouts=sqliteTable("scouts",{
+ id:integer("id").primaryKey({autoIncrement:true}),
+ organizationId:integer("organization_id").notNull(),
+ name:text("name").notNull(),
+ ageLevel:text("age_level",{enum:["Daisy","Brownie","Junior","Cadette","Senior","Ambassador"]}).notNull(),
+ archivedAt:text("archived_at"),
+ createdAt:text("created_at").notNull(),
+ updatedAt:text("updated_at").notNull(),
+},t=>[
+ index("scout_organization_archived_name").on(t.organizationId,t.archivedAt,t.name),
+]);
+export const boothScoutAssignments=sqliteTable("booth_scout_assignments",{
+ id:integer("id").primaryKey({autoIncrement:true}),
+ organizationId:integer("organization_id").notNull(),
+ boothId:integer("booth_id").notNull(),
+ scoutId:integer("scout_id").notNull(),
+ attendanceStart:text("attendance_start").notNull(),
+ attendanceEnd:text("attendance_end").notNull(),
+ stayedThroughClose:integer("stayed_through_close",{mode:"boolean"}).notNull().default(false),
+ createdAt:text("created_at").notNull(),
+ updatedAt:text("updated_at").notNull(),
+},t=>[
+ uniqueIndex("booth_scout_assignment_booth_scout").on(t.boothId,t.scoutId),
+ index("booth_scout_assignment_organization").on(t.organizationId),
+ index("booth_scout_assignment_scout").on(t.scoutId),
+]);
+export const scoutSalesCredits=sqliteTable("scout_sales_credits",{
+ id:integer("id").primaryKey({autoIncrement:true}),
+ organizationId:integer("organization_id").notNull(),
+ boothId:integer("booth_id").notNull(),
+ saleId:text("sale_id").notNull(),
+ transactionId:text("transaction_id").notNull(),
+ scoutId:integer("scout_id").notNull(),
+ reconciliationId:integer("reconciliation_id").notNull(),
+ creditNumerator:integer("credit_numerator").notNull(),
+ creditDenominator:integer("credit_denominator").notNull(),
+ finalizedAt:text("finalized_at").notNull(),
+},t=>[
+ uniqueIndex("scout_credit_transaction_scout").on(t.transactionId,t.scoutId),
+ index("scout_credit_organization_scout").on(t.organizationId,t.scoutId),
+ index("scout_credit_booth").on(t.boothId),
+ index("scout_credit_sale").on(t.saleId),
+ index("scout_credit_reconciliation").on(t.reconciliationId),
 ]);
 export const products=sqliteTable("products",{
  id:integer("id").primaryKey({autoIncrement:true}),

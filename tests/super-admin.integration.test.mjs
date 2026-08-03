@@ -8,12 +8,14 @@ const SELECTED_ORGANIZATION_ID = 1;
 const OTHER_ORGANIZATION_ID = 2;
 
 const OPERATIONAL_TABLES = [
+  "scout_sales_credits",
   "reconciliation_items",
   "reconciliations",
   "transactions",
   "sales",
   "inventory",
   "assignments",
+  "booth_scout_assignments",
   "admin_alerts",
   "booth_lifecycle_audit",
   "inventory_configuration_audit",
@@ -22,6 +24,7 @@ const OPERATIONAL_TABLES = [
   "access_audit_log",
   "product_catalog_audit",
   "booths",
+  "scouts",
 ];
 const PROTECTED_TABLES = [
   "organizations",
@@ -190,6 +193,15 @@ function createSchema(database) {
       role TEXT NOT NULL,
       UNIQUE (booth_id, user_id)
     );
+    CREATE TABLE scouts (
+      id INTEGER PRIMARY KEY, organization_id INTEGER NOT NULL, name TEXT NOT NULL,
+      age_level TEXT NOT NULL, archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE booth_scout_assignments (
+      id INTEGER PRIMARY KEY, organization_id INTEGER NOT NULL, booth_id INTEGER NOT NULL,
+      scout_id INTEGER NOT NULL, attendance_start TEXT NOT NULL, attendance_end TEXT NOT NULL,
+      stayed_through_close INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
     CREATE TABLE inventory (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       booth_id INTEGER NOT NULL,
@@ -248,6 +260,12 @@ function createSchema(database) {
       discrepancy INTEGER NOT NULL,
       returned_to_troop INTEGER NOT NULL CHECK (returned_to_troop >= 0),
       UNIQUE (reconciliation_id, product_id)
+    );
+    CREATE TABLE scout_sales_credits (
+      id INTEGER PRIMARY KEY, organization_id INTEGER NOT NULL, booth_id INTEGER NOT NULL,
+      sale_id TEXT NOT NULL, transaction_id TEXT NOT NULL, scout_id INTEGER NOT NULL,
+      reconciliation_id INTEGER NOT NULL, credit_numerator INTEGER NOT NULL,
+      credit_denominator INTEGER NOT NULL, finalized_at TEXT NOT NULL
     );
     CREATE TABLE troop_inventory_balances (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -400,6 +418,13 @@ function seed(database) {
       (2001, 200, 20, 'lead'),
       (2002, 201, 20, 'auditor');
 
+    INSERT INTO scouts VALUES
+      (301, 1, 'Demo Scout', 'Junior', NULL, '2026-01-01', '2026-01-01'),
+      (401, 2, 'Neighbor Scout', 'Cadette', NULL, '2026-01-01', '2026-01-01');
+    INSERT INTO booth_scout_assignments VALUES
+      (3101, 1, 100, 301, '2026-03-01', '2026-03-02', 1, '2026-01-01', '2026-01-01'),
+      (4101, 2, 200, 401, '2026-04-01', '2026-04-02', 1, '2026-01-01', '2026-01-01');
+
     INSERT INTO inventory VALUES
       (1101, 100, 101, 30, 4, -1),
       (1102, 101, 102, 25, 3, 2),
@@ -433,6 +458,10 @@ function seed(database) {
       (1302, 1201, 102, 8, 8, 0, 8),
       (2301, 2201, 201, 12, 12, 0, 12),
       (2302, 2201, 202, 10, 9, -1, 9);
+
+    INSERT INTO scout_sales_credits VALUES
+      (3201, 1, 100, 'sale-demo-cash', 'txn-demo-line-1', 301, 1201, 2, 1, '2026-06-01'),
+      (4201, 2, 200, 'sale-other-cash', 'txn-other-line', 401, 2201, 4, 1, '2026-06-02');
 
     INSERT INTO troop_inventory_balances VALUES
       (1401, 1, 101, 90, 25, '2026-06-03'),
@@ -554,6 +583,9 @@ function rowsForOrganization(snapshot, organizationId, table) {
     case "access_audit_log":
     case "product_catalog_audit":
     case "booths":
+    case "scouts":
+    case "booth_scout_assignments":
+    case "scout_sales_credits":
       return snapshot[table].filter(({ organization_id }) => organization_id === organizationId);
     case "assignments":
     case "inventory":
@@ -731,6 +763,8 @@ test("POST deletes the complete selected operational boundary and preserves both
     inventoryTransactions: 6,
     sales: 3,
     regularAuditEvents: 7,
+    scouts: 1,
+    scoutCredits: 1,
   });
 
   assertRowsDeleted(selectedOperational);
@@ -819,6 +853,8 @@ test("a batch failure rolls back every deletion and records a durable failed pur
     inventoryTransactions: 6,
     sales: 3,
     regularAuditEvents: 7,
+    scouts: 1,
+    scoutCredits: 1,
   });
 });
 

@@ -5,6 +5,7 @@ import {
   assertRateLimitRetryAllowed,
   throwApiResponseError,
 } from "../lib/client-rate-limit";
+import { BoothScoutAttendance } from "./booth-scout-attendance";
 
 type BoothStatus = "draft" | "scheduled" | "live" | "closed";
 type ManagedBooth = {
@@ -383,6 +384,7 @@ export function BoothManagement({
                   <div className="loadingState">No active operators match your search.</div>
                 )}
               </div>
+              <BoothScoutAttendance organizationId={organizationId} booth={selected} />
               <div className="archiveBoothControl">
                 <p className="eyebrow">BOOTH LIFECYCLE</p>
                 <strong>Manually archive this booth</strong>

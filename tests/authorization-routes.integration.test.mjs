@@ -140,6 +140,9 @@ const [
   salesRoute,
   reconciliationRoute,
   invitationsRoute,
+  scoutsRoute,
+  boothScoutsRoute,
+  scoutCreditRoute,
 ] = await Promise.all([
   import("../app/api/booths/[boothId]/route.ts"),
   import("../app/api/booths/[boothId]/live/route.ts"),
@@ -148,6 +151,9 @@ const [
   import("../app/api/booths/[boothId]/sales/route.ts"),
   import("../app/api/booths/[boothId]/reconciliation/route.ts"),
   import("../app/api/organization-invitations/route.ts"),
+  import("../app/api/admin/scouts/route.ts"),
+  import("../app/api/admin/booth-scouts/route.ts"),
+  import("../app/api/booths/[boothId]/scout-credit/route.ts"),
 ]);
 
 function asRole(role, { canInviteUsers = false, assigned = true } = {}) {
@@ -258,6 +264,16 @@ test("actual API and WebSocket boundaries reject authenticated cross-organizatio
     403,
     "invitation mutation",
   );
+  await expectStatus(
+    scoutsRoute.POST(jsonRequest("https://app.example/api/admin/scouts", "POST", { organizationId: 2, name: "Cross Tenant Scout", ageLevel: "Junior" })),
+    403,
+    "scout directory mutation",
+  );
+  await expectStatus(
+    boothScoutsRoute.PUT(jsonRequest("https://app.example/api/admin/booth-scouts", "PUT", { organizationId: 2, boothId: 200, revision: "", assignments: [] })),
+    403,
+    "scout attendance mutation",
+  );
 
   assert.equal(state.businessCalls, 0, "authorization must fail before business queries");
   assert.equal(state.roomCalls, 0, "authorization must fail before opening a room");
@@ -304,6 +320,21 @@ test("actual route boundaries enforce volunteer restrictions and assignment", as
     ),
     403,
     "volunteers cannot manage invitations",
+  );
+  await expectStatus(
+    scoutsRoute.POST(jsonRequest("https://app.example/api/admin/scouts", "POST", { organizationId: 1, name: "Restricted Scout", ageLevel: "Daisy" })),
+    403,
+    "volunteers cannot mutate the scout directory",
+  );
+  await expectStatus(
+    boothScoutsRoute.PUT(jsonRequest("https://app.example/api/admin/booth-scouts", "PUT", { organizationId: 1, boothId: 100, revision: "", assignments: [] })),
+    403,
+    "volunteers cannot manage scout attendance",
+  );
+  await expectStatus(
+    scoutCreditRoute.GET(new Request("https://app.example/api/booths/100/scout-credit"), boothContext(100)),
+    403,
+    "volunteers cannot inspect reconciliation credit",
   );
   await expectStatus(
     liveRoute.GET(websocketRequest(100), boothContext(100)),

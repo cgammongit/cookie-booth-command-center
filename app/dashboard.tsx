@@ -1,7 +1,7 @@
 "use client";
 
 import { UserButton } from "@clerk/nextjs";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArchivedBooths } from "./archived-booths";
 import { BoothManagement } from "./booth-management";
 import { GooglePlaceField, type SelectedPlace } from "./google-place-field";
@@ -74,6 +74,7 @@ type ReconciliationState = {
   cashTurnedIn: string;
   notes: string;
 };
+type ScoutCreditPreview = { scouts: Array<{ scoutId: number; name: string; ageLevel: string; attendanceStart: string; attendanceEnd: string; creditedBoxes: number }>; totalBoxes: number; allocatedBoxes: number; unallocatedSales: string[]; balanced: boolean };
 
 function formatWindow(booth: Booth) {
   const start = new Date(booth.startsAt);
@@ -133,6 +134,7 @@ export function Dashboard({
   const [saleSubmitting, setSaleSubmitting] = useState(false);
   const [reconciliation, setReconciliation] = useState<ReconciliationState | null>(null);
   const [reconciliationSubmitting, setReconciliationSubmitting] = useState(false);
+  const [scoutCreditPreview, setScoutCreditPreview] = useState<ScoutCreditPreview | null>(null);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryBoothId, setInventoryBoothId] = useState<number | null>(null);
   const [view, setView] = useState<
@@ -146,6 +148,8 @@ export function Dashboard({
     useState<LiveSyncStatus>("polling");
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [activeScouts, setActiveScouts] = useState<Array<{ id: number; name: string; ageLevel: string }>>([]);
+  const [selectedScoutIds, setSelectedScoutIds] = useState<number[]>([]);
   const now = useMemo(() => new Date(), []);
   const [boothDraft, setBoothDraft] = useState({
     name: "",
@@ -210,6 +214,17 @@ export function Dashboard({
   const handlePlaceSelected = useCallback((place: SelectedPlace) => {
     setBoothDraft((current) => ({ ...current, ...place }));
   }, []);
+
+  useEffect(() => {
+    if (!showCreate || !permissions.canCreateBooths) return;
+    void fetch(`/api/admin/scouts?organizationId=${organizationId}`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as { scouts?: Array<{ id: number; name: string; ageLevel: string; archivedAt: string | null }>; error?: string };
+        if (!response.ok) throw new Error(payload.error || "Unable to load scouts");
+        setActiveScouts((payload.scouts || []).filter((scout) => !scout.archivedAt));
+      })
+      .catch((reason) => setError(reason instanceof Error ? reason.message : "Unable to load scouts"));
+  }, [organizationId, permissions.canCreateBooths, showCreate]);
 
   const loadSelectedBooth = useCallback(async (signal: AbortSignal) => {
     if (!selectedBoothId) return;
@@ -368,8 +383,18 @@ export function Dashboard({
     }
   }
 
-  function openReconciliation() {
+  async function openReconciliation() {
     setError("");
+    if (!selected) return;
+    try {
+      const response = await fetch(`/api/booths/${selected.id}/scout-credit`, { cache: "no-store" });
+      const payload = await response.json() as ScoutCreditPreview & { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Unable to calculate scout credit");
+      setScoutCreditPreview(payload);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to calculate scout credit");
+      return;
+    }
     setReconciliation({
       finalCounts: Object.fromEntries(
         selectedInventory.map((item) => [item.productId, Number(item.remaining)]),
@@ -443,6 +468,7 @@ export function Dashboard({
           longitude: boothDraft.longitude,
           startsAt: new Date(boothDraft.startsAt).toISOString(),
           endsAt: new Date(boothDraft.endsAt).toISOString(),
+          scoutIds: selectedScoutIds,
         }),
       });
       const payload = (await response.json()) as { error?: string };
@@ -450,6 +476,7 @@ export function Dashboard({
         throwApiResponseError(response, payload, "Unable to create booth", "booth:create");
       }
       setShowCreate(false);
+      setSelectedScoutIds([]);
       setBoothDraft((current) => ({
         ...current,
         name: "",
@@ -720,6 +747,12 @@ export function Dashboard({
               Count every unsold box still at the booth. These boxes return to
               troop inventory when the booth closes.
             </p>
+            {scoutCreditPreview && <section className="reconciliationSummary" aria-label="Scout credit preview">
+              <div><span>Boxes sold</span><strong>{scoutCreditPreview.totalBoxes}</strong></div>
+              <div className={!scoutCreditPreview.balanced ? "hasDiscrepancy" : ""}><span>Scout credit allocated</span><strong>{scoutCreditPreview.allocatedBoxes.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></div>
+              {scoutCreditPreview.scouts.map((scout) => <div key={scout.scoutId}><span>{scout.name} · {new Date(scout.attendanceStart).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–{new Date(scout.attendanceEnd).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span><strong>{scout.creditedBoxes.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></div>)}
+              {!scoutCreditPreview.balanced && <p role="alert">{scoutCreditPreview.unallocatedSales.length} sale(s) have no eligible scout. Correct attendance before reconciling.</p>}
+            </section>}
             <div className="reconciliationCounts">
               {selectedInventory.map((product) => {
                 const finalCount =
@@ -816,6 +849,7 @@ export function Dashboard({
                 className="primary"
                 disabled={
                   reconciliationSubmitting ||
+                  !scoutCreditPreview?.balanced ||
                   !Number.isFinite(cashTurnedIn) ||
                   cashTurnedIn < 0 ||
                   ((inventoryDiscrepancy !== 0 || cashDiscrepancy !== 0) &&
@@ -923,6 +957,7 @@ export function Dashboard({
             </label>
             <label>Starts<input required type="datetime-local" value={boothDraft.startsAt} onChange={(event) => setBoothDraft({ ...boothDraft, startsAt: event.target.value })} /></label>
             <label>Ends<input required type="datetime-local" value={boothDraft.endsAt} onChange={(event) => setBoothDraft({ ...boothDraft, endsAt: event.target.value })} /></label>
+            <fieldset><legend>Assigned scouts</legend>{activeScouts.map((scout) => <label key={scout.id} className="inviteToggle"><input type="checkbox" checked={selectedScoutIds.includes(scout.id)} onChange={(event) => setSelectedScoutIds((current) => event.target.checked ? [...current, scout.id] : current.filter((id) => id !== scout.id))} /><span>{scout.name} · {scout.ageLevel}</span></label>)}{!activeScouts.length && <small>Add active scouts in People &amp; Roles to assign them here.</small>}</fieldset>
             <button className="primary" disabled={creating}>{creating ? "Creating…" : "Create booth"}</button>
           </form>
         </section>

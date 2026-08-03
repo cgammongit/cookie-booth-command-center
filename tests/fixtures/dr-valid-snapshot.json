@@ -7,12 +7,15 @@
     "organization_invitations",
     "booths",
     "assignments",
+    "scouts",
+    "booth_scout_assignments",
     "products",
     "inventory",
     "sales",
     "transactions",
     "reconciliations",
     "reconciliation_items",
+    "scout_sales_credits",
     "troop_inventory_balances",
     "inventory_ledger",
     "access_audit_log",
@@ -29,19 +32,22 @@
     "invitations": 3,
     "booths": 5,
     "assignments": 10,
+    "scouts": 6,
+    "scoutAssignments": 8,
     "products": 12,
     "boothInventory": 30,
     "sales": 25,
     "adjustments": 4,
     "reconciliations": 2,
     "reconciliationItems": 12,
+    "scoutCredits": 20,
     "troopBalances": 12,
     "inventoryLedger": 70,
     "accessAudit": 15,
     "lifecycleAudit": 3,
     "inventoryAudit": 7,
     "productAudit": 2,
-    "migrations": 12
+    "migrations": 13
   },
   "issues": {
     "foreignKeyViolations": 0,
@@ -50,6 +56,9 @@
     "crossTenantProducts": 0,
     "crossTenantInventory": 0,
     "negativeTroopInventory": 0,
-    "negativeBoothInventory": 0
+    "negativeBoothInventory": 0,
+    "orphanScouts": 0,
+    "invalidScoutAssignments": 0,
+    "invalidScoutCredits": 0
   }
 }

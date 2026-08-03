@@ -22,6 +22,7 @@ const createSchema = z
     longitude: z.number().min(-180).max(180).nullable().optional(),
     startsAt: z.string().datetime(),
     endsAt: z.string().datetime(),
+    scoutIds: z.array(z.number().int().positive()).max(100).optional().default([]),
   })
   .strict()
   .refine((value) => new Date(value.endsAt) > new Date(value.startsAt), {
@@ -141,14 +142,27 @@ export async function POST(request: Request) {
     "booth.create",
   );
   if (authorization.error) return authorization.error;
-
-  const result = await env.DB.prepare(`
+  if (new Set(parsed.data.scoutIds).size !== parsed.data.scoutIds.length) {
+    return Response.json({ error: "A scout may be assigned only once" }, { status: 400 });
+  }
+  if (parsed.data.scoutIds.length) {
+    const placeholders = parsed.data.scoutIds.map(() => "?").join(",");
+    const scouts = await env.DB.prepare(`SELECT id FROM scouts WHERE organization_id = ? AND archived_at IS NULL AND id IN (${placeholders})`)
+      .bind(parsed.data.organizationId, ...parsed.data.scoutIds).all();
+    if (scouts.results.length !== parsed.data.scoutIds.length) {
+      return Response.json({ error: "Only active scouts in this organization may be assigned" }, { status: 403 });
+    }
+  }
+  const boothId = Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000;
+  const now = new Date().toISOString();
+  const statements = [env.DB.prepare(`
     INSERT INTO booths (
-      organization_id, name, address, location_name, google_place_id,
-      latitude, longitude, starts_at, ends_at, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')
+      id, organization_id, name, address, location_name, google_place_id,
+      latitude, longitude, starts_at, ends_at, status, scout_assignment_revision
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)
   `)
     .bind(
+      boothId,
       parsed.data.organizationId,
       parsed.data.name,
       parsed.data.address,
@@ -158,8 +172,20 @@ export async function POST(request: Request) {
       parsed.data.longitude ?? null,
       parsed.data.startsAt,
       parsed.data.endsAt,
-    )
-    .run();
+      crypto.randomUUID(),
+    )];
+  for (const scoutId of parsed.data.scoutIds) {
+    statements.push(env.DB.prepare(`INSERT INTO booth_scout_assignments (
+      organization_id, booth_id, scout_id, attendance_start, attendance_end,
+      stayed_through_close, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`)
+      .bind(parsed.data.organizationId, boothId, scoutId, parsed.data.startsAt, parsed.data.endsAt, now, now));
+  }
+  try {
+    await env.DB.batch(statements);
+  } catch {
+    return Response.json({ error: "The booth could not be created" }, { status: 409 });
+  }
 
-  return Response.json({ boothId: result.meta.last_row_id }, { status: 201 });
+  return Response.json({ boothId }, { status: 201 });
 }

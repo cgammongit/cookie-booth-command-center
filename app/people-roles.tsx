@@ -6,6 +6,7 @@ import {
   throwApiResponseError,
 } from "../lib/client-rate-limit";
 import { isAdministratorProtectedFromActor } from "../lib/admin-role-protection";
+import { ScoutDirectory } from "./scout-directory";
 
 type Role = "admin" | "lead" | "volunteer" | "auditor";
 type Status = "pending" | "active" | "suspended";
@@ -587,6 +588,8 @@ export function PeopleRoles({
           </div>
         )}
       </section>}
+
+      {canManagePeople && <ScoutDirectory organizationId={organizationId} />}
 
       {canManagePeople && <section className="auditPanel">
         <div className="panelHeading">
