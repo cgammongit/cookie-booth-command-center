@@ -44,6 +44,7 @@ type BoothRow = {
   revenue: number;
   low: number;
   lead: string | null;
+  scoutAssignmentRevision: string;
 };
 
 export async function GET(request: Request) {
@@ -75,6 +76,7 @@ export async function GET(request: Request) {
       b.starts_at AS startsAt,
       b.ends_at AS endsAt,
       b.status,
+      b.scout_assignment_revision AS scoutAssignmentRevision,
       COALESCE((
         SELECT SUM(CASE WHEN t.type = 'sale' THEN t.quantity ELSE 0 END)
         FROM transactions t WHERE t.booth_id = b.id

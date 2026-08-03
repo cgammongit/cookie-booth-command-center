@@ -37,6 +37,7 @@ type Booth = {
   boxes: number;
   revenue: number;
   low: number;
+  scoutAssignmentRevision: string;
 };
 
 type BoothPermissions = {
@@ -666,9 +667,9 @@ export function Dashboard({
         )}
         {inventoryLoading && <div className="loadingState">Loading live inventory…</div>}
       </section>
-      {permissions.canCreateBooths && (
+      {(permissions.canCreateBooths || role === "volunteer") && (
         <div className="liveBoothScoutManagement">
-          <BoothScoutAttendance organizationId={organizationId} booth={selected} />
+          <BoothScoutAttendance key={selected.scoutAssignmentRevision} organizationId={organizationId} booth={selected} />
         </div>
       )}
       {saleStep && (

@@ -6,16 +6,18 @@ const sqlite=new DatabaseSync(":memory:");
 sqlite.exec(`PRAGMA foreign_keys=ON;
 CREATE TABLE users(id INTEGER PRIMARY KEY,clerk_user_id TEXT,email TEXT,display_name TEXT,status TEXT,last_synced_at TEXT);
 CREATE TABLE memberships(id INTEGER PRIMARY KEY,organization_id INTEGER,user_id INTEGER,role TEXT,status TEXT,can_invite_users INTEGER,created_at TEXT,updated_at TEXT);
+CREATE TABLE assignments(id INTEGER PRIMARY KEY,booth_id INTEGER,user_id INTEGER,role TEXT,created_at TEXT);
 CREATE TABLE booths(id INTEGER PRIMARY KEY,organization_id INTEGER,name TEXT,address TEXT,location_name TEXT,google_place_id TEXT,latitude REAL,longitude REAL,starts_at TEXT,ends_at TEXT,status TEXT,archived_at TEXT,archived_by_user_id INTEGER,archive_reason TEXT,archive_kind TEXT,scout_assignment_revision TEXT NOT NULL DEFAULT '');
 CREATE TABLE scouts(id INTEGER PRIMARY KEY,organization_id INTEGER,name TEXT,age_level TEXT,archived_at TEXT,created_at TEXT,updated_at TEXT);
 CREATE TABLE booth_scout_assignments(id INTEGER PRIMARY KEY AUTOINCREMENT,organization_id INTEGER,booth_id INTEGER,scout_id INTEGER,attendance_start TEXT,attendance_end TEXT,stayed_through_close INTEGER,created_at TEXT,updated_at TEXT,UNIQUE(booth_id,scout_id));
 CREATE TABLE scout_sales_credits(id INTEGER PRIMARY KEY,organization_id INTEGER,booth_id INTEGER,sale_id TEXT,transaction_id TEXT,scout_id INTEGER,reconciliation_id INTEGER,credit_numerator INTEGER,credit_denominator INTEGER,finalized_at TEXT);
-INSERT INTO users VALUES(1,'clerk-admin','a@test','Admin','active',''); INSERT INTO memberships VALUES(1,1,1,'admin','active',0,'','');
+INSERT INTO users VALUES(1,'clerk-admin','a@test','Admin','active',''),(2,'clerk-volunteer','v@test','Volunteer','active',''),(3,'clerk-unassigned','u@test','Unassigned','active',''); INSERT INTO memberships VALUES(1,1,1,'admin','active',0,'',''),(2,1,2,'volunteer','active',0,'',''),(3,1,3,'volunteer','active',0,'','');
+INSERT INTO assignments VALUES(1,10,2,'volunteer','');
 INSERT INTO booths VALUES(10,1,'Booth','Address',NULL,NULL,NULL,NULL,'2026-01-01T18:00:00.000Z','2026-01-01T20:00:00.000Z','live',NULL,NULL,NULL,NULL,'r1');
 INSERT INTO scouts VALUES(50,1,'Active Scout','Junior',NULL,'',''),(51,1,'Archived Scout','Senior','2026-01-01','',''),(60,2,'Other Scout','Daisy',NULL,'','');`);
 globalThis.__CLERK_TEST_AUTH__={userId:'clerk-admin'};
 function norm(sql){return sql.replace(/\s+/g,' ').trim().toLowerCase();}
-class Statement{constructor(sql){this.sql=sql;this.params=[];}bind(...p){this.params=p;return this;}async raw(){if(norm(this.sql).includes('from "users" inner join "memberships"'))return[[1,1,1,'admin','active',false]];return [];}async first(){return sqlite.prepare(this.sql).get(...this.params)??null;}async all(){return{results:sqlite.prepare(this.sql).all(...this.params),success:true,meta:{}};}async run(){const result=sqlite.prepare(this.sql).run(...this.params);return{success:true,meta:{changes:Number(result.changes),last_row_id:Number(result.lastInsertRowid)}};}}
+class Statement{constructor(sql){this.sql=sql;this.params=[];}bind(...p){this.params=p;return this;}async raw(){if(norm(this.sql).includes('from "users" inner join "memberships"')){const clerk=globalThis.__CLERK_TEST_AUTH__.userId;const row=sqlite.prepare('SELECT u.id userId,m.id membershipId,m.organization_id organizationId,m.role,m.status,m.can_invite_users canInviteUsers FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.clerk_user_id=? AND m.organization_id=? AND m.status=\'active\' AND u.status=\'active\'').get(clerk,this.params.at(-1));return row?[[row.userId,row.membershipId,row.organizationId,row.role,row.status,Boolean(row.canInviteUsers)]]:[];}return [];}async first(){return sqlite.prepare(this.sql).get(...this.params)??null;}async all(){return{results:sqlite.prepare(this.sql).all(...this.params),success:true,meta:{}};}async run(){const result=sqlite.prepare(this.sql).run(...this.params);return{success:true,meta:{changes:Number(result.changes),last_row_id:Number(result.lastInsertRowid)}};}}
 class DB{prepare(sql){return new Statement(sql);}async batch(statements){sqlite.exec('BEGIN');try{const out=[];for(const statement of statements)out.push(await statement.run());sqlite.exec('COMMIT');return out;}catch(error){sqlite.exec('ROLLBACK');throw error;}}}
 globalThis.__CLOUDFLARE_ENV__={DB:new DB()};
 const route=await import('../app/api/admin/booth-scouts/route.ts');
@@ -54,4 +56,23 @@ test('finalized credit prevents removing attendance and closed booths lock chang
  assert.equal((await route.PUT(request({organizationId:1,boothId:10,revision,assignments:[]}))).status,409);
  sqlite.prepare("UPDATE booths SET status='closed' WHERE id=10").run(); revision=sqlite.prepare('SELECT scout_assignment_revision AS revision FROM booths WHERE id=10').get().revision;
  assert.equal((await route.PUT(request({organizationId:1,boothId:10,revision,assignments:[{scoutId:assignment.scout_id,attendanceStart:assignment.attendance_start,attendanceEnd:assignment.attendance_end}]}))).status,409);
+});
+
+test('assigned volunteer can change only the roster for the assigned booth',async()=>{
+ sqlite.prepare("UPDATE booths SET status='live'").run(); sqlite.prepare('DELETE FROM scout_sales_credits').run(); sqlite.prepare('DELETE FROM booth_scout_assignments').run(); sqlite.prepare("UPDATE booths SET scout_assignment_revision='vol-r1'").run();
+ globalThis.__CLERK_TEST_AUTH__={userId:'clerk-volunteer'};
+ let response=await route.PUT(request({organizationId:1,boothId:10,revision:'vol-r1',assignments:[{scoutId:50,attendanceStart:'2026-01-01T18:00:00.000Z',attendanceEnd:'2026-01-01T20:00:00.000Z'}]}));
+ assert.equal(response.status,200); let row=sqlite.prepare('SELECT * FROM booth_scout_assignments').get(); assert.equal(row.attendance_start,'2026-01-01T18:00:00.000Z');
+ const revision=sqlite.prepare('SELECT scout_assignment_revision revision FROM booths WHERE id=10').get().revision;
+ response=await route.PUT(request({organizationId:1,boothId:10,revision,assignments:[{scoutId:50,attendanceStart:'2026-01-01T18:15:00.000Z',attendanceEnd:'2026-01-01T20:00:00.000Z'}]}));
+ assert.equal(response.status,403); assert.equal(sqlite.prepare('SELECT attendance_start FROM booth_scout_assignments').get().attendance_start,'2026-01-01T18:00:00.000Z');
+ globalThis.__CLERK_TEST_AUTH__={userId:'clerk-unassigned'};
+ response=await route.PUT(request({organizationId:1,boothId:10,revision,assignments:[]})); assert.equal(response.status,403);
+ globalThis.__CLERK_TEST_AUTH__={userId:'clerk-admin'};
+});
+
+test('same scout may be assigned to different booths on the same day',()=>{
+ sqlite.prepare("INSERT INTO booths VALUES(11,1,'Second booth','Address',NULL,NULL,NULL,NULL,'2026-01-01T18:00:00.000Z','2026-01-01T20:00:00.000Z','live',NULL,NULL,NULL,NULL,'r2')").run();
+ sqlite.prepare("INSERT INTO booth_scout_assignments(organization_id,booth_id,scout_id,attendance_start,attendance_end,stayed_through_close,created_at,updated_at) VALUES(1,11,50,'2026-01-01T18:00:00.000Z','2026-01-01T20:00:00.000Z',1,'','')").run();
+ assert.equal(sqlite.prepare('SELECT COUNT(*) count FROM booth_scout_assignments WHERE scout_id=50').get().count,2);
 });

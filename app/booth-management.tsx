@@ -17,6 +17,7 @@ type ManagedBooth = {
   endsAt: string;
   status: BoothStatus;
   lead: string | null;
+  scoutAssignmentRevision?: string;
 };
 type ManagedPerson = {
   userId: number;
@@ -384,7 +385,6 @@ export function BoothManagement({
                   <div className="loadingState">No active operators match your search.</div>
                 )}
               </div>
-              <BoothScoutAttendance organizationId={organizationId} booth={selected} />
               <div className="archiveBoothControl">
                 <p className="eyebrow">BOOTH LIFECYCLE</p>
                 <strong>Manually archive this booth</strong>
@@ -406,6 +406,7 @@ export function BoothManagement({
                   {saving === `archive:${selected.id}` ? "Archiving…" : "Archive booth"}
                 </button>
               </div>
+              <BoothScoutAttendance key={selected.scoutAssignmentRevision} organizationId={organizationId} booth={selected} />
             </>
           )}
         </div>
