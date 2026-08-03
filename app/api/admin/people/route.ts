@@ -9,6 +9,7 @@ import {
   users,
 } from "../../../../db/schema";
 import { requireOrganizationPermission } from "../../../../lib/access";
+import { canManageProtectedAdministrators } from "../../../../lib/admin-role-override";
 import { listOrganizationInvitations } from "../../../../lib/invitations";
 
 const querySchema = z.object({
@@ -92,5 +93,9 @@ export async function GET(request: Request) {
     assignments: boothAssignments,
     invitations: await listOrganizationInvitations(organizationId),
     currentUserId: authorization.access.userId,
+    canManageProtectedAdministrators:
+      await canManageProtectedAdministrators(
+        authorization.access.clerkUserId,
+      ),
   });
 }
