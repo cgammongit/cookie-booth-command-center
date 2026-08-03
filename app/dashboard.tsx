@@ -1,7 +1,7 @@
 "use client";
 
 import { UserButton } from "@clerk/nextjs";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArchivedBooths } from "./archived-booths";
 import { BoothManagement } from "./booth-management";
 import { BoothScoutAttendance } from "./booth-scout-attendance";
@@ -22,6 +22,7 @@ import {
   assertRateLimitRetryAllowed,
   throwApiResponseError,
 } from "../lib/client-rate-limit";
+import { RequestOwnership } from "../lib/request-ownership";
 
 type Booth = {
   id: number;
@@ -139,6 +140,8 @@ export function Dashboard({
   const [reconciliationSubmitting, setReconciliationSubmitting] = useState(false);
   const [scoutCreditPreview, setScoutCreditPreview] = useState<ScoutCreditPreview | null>(null);
   const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [boothActivation, setBoothActivation] = useState(0);
+  const boothRequestOwnershipRef = useRef(new RequestOwnership());
   const [inventoryBoothId, setInventoryBoothId] = useState<number | null>(null);
   const [view, setView] = useState<
     "dashboard" | "people" | "booths" | "archives" | "inventory" | "troopInventory" | "reports" | "superAdmin"
@@ -165,6 +168,24 @@ export function Dashboard({
     endsAt: toLocalDateTimeInput(new Date(now.getTime() + 90_000_000)),
   });
   const selectedBoothId = selected?.id;
+
+  const activateBooth = useCallback((booth: Booth) => {
+    const activation = boothRequestOwnershipRef.current.activate();
+    setBoothActivation(activation);
+    setSelectedInventory([]);
+    setPaymentTotals({ cash: 0, creditCard: 0, venmoPaypal: 0, gross: 0 });
+    setDetailSyncWarning("");
+    setInventoryLoading(true);
+    setSelected(booth);
+  }, []);
+
+  const leaveBooth = useCallback(() => {
+    boothRequestOwnershipRef.current.invalidate();
+    setSelected(null);
+    setSelectedInventory([]);
+    setInventoryLoading(false);
+    setDetailSyncWarning("");
+  }, []);
 
   const loadBooths = useCallback(async (signal: AbortSignal) => {
     try {
@@ -231,8 +252,10 @@ export function Dashboard({
 
   const loadSelectedBooth = useCallback(async (signal: AbortSignal) => {
     if (!selectedBoothId) return;
+    const requestBoothId = selectedBoothId;
+    const requestActivation = boothActivation;
     try {
-      const response = await fetch(`/api/booths/${selectedBoothId}`, {
+      const response = await fetch(`/api/booths/${requestBoothId}`, {
         cache: "no-store",
         signal,
       });
@@ -242,6 +265,7 @@ export function Dashboard({
         paymentTotals?: PaymentTotals;
         error?: string;
       };
+      if (!boothRequestOwnershipRef.current.owns(requestActivation, signal)) return;
       if (!response.ok) {
         throwApiResponseError(
           response,
@@ -265,7 +289,7 @@ export function Dashboard({
       setInventoryLoading(false);
       setDetailSyncWarning("");
     } catch (loadError) {
-      if (signal.aborted) return;
+      if (!boothRequestOwnershipRef.current.owns(requestActivation, signal)) return;
       setInventoryLoading(false);
       setDetailSyncWarning(
         loadError instanceof Error
@@ -273,7 +297,7 @@ export function Dashboard({
           : "Live synchronization is temporarily unavailable.",
       );
     }
-  }, [selectedBoothId]);
+  }, [boothActivation, selectedBoothId]);
 
   const refreshSelectedBooth = useActivePolling(loadSelectedBooth, {
     enabled:
@@ -281,6 +305,10 @@ export function Dashboard({
       Boolean(selectedBoothId) &&
       liveSyncStatus !== "connected",
   });
+  useEffect(() => {
+    if (!selectedBoothId || !boothActivation) return;
+    void refreshSelectedBooth(true);
+  }, [boothActivation, refreshSelectedBooth, selectedBoothId]);
   useBoothLiveSync({
     boothIds: view === "dashboard" && selectedBoothId ? [selectedBoothId] : [],
     onRefresh: async () => {
@@ -438,8 +466,7 @@ export function Dashboard({
         );
       }
       setReconciliation(null);
-      setSelected(null);
-      setSelectedInventory([]);
+      leaveBooth();
       await refreshBooths(true);
     } catch (reconciliationError) {
       setError(
@@ -575,8 +602,7 @@ export function Dashboard({
     <main>
       <header>
         <button className="back" onClick={() => {
-          setSelected(null);
-          setSelectedInventory([]);
+          leaveBooth();
         }}>← All booths</button>
         <div className="brand">COOKIE BOOTH <b>COMMAND CENTER</b></div>
         <UserButton />
@@ -643,7 +669,7 @@ export function Dashboard({
           {role === "admin" && (
             <button onClick={() => {
               setInventoryBoothId(selected.id);
-              setSelected(null);
+              leaveBooth();
               setView("inventory");
             }}>Manage booth products</button>
           )}
@@ -986,9 +1012,7 @@ export function Dashboard({
         <section className="booths">
           {booths.map((booth) => (
             <button className="booth" key={booth.id} onClick={() => {
-              setSelectedInventory([]);
-              setInventoryLoading(true);
-              setSelected(booth);
+              activateBooth(booth);
             }}>
               <div><span className={`pill ${booth.status}`}>{booth.status}</span><h3>{booth.name}</h3><p>{booth.locationName || booth.address}</p><small>{formatWindow(booth)}</small></div>
               <dl><div><dt>Lead</dt><dd>{booth.lead || "Not assigned"}</dd></div><div><dt>Boxes</dt><dd>{booth.boxes}</dd></div><div><dt>Sales</dt><dd>${Number(booth.revenue).toLocaleString()}</dd></div></dl>

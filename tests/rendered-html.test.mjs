@@ -275,9 +275,9 @@ test("active pages synchronize booth operations and troop inventory without over
   ]);
 
   assert.match(polling, /document\.visibilityState !== "visible"/);
-  assert.match(polling, /if \(inFlightRef\.current\) return inFlightRef\.current/);
+  assert.match(polling, /requestSlotRef\.current\.start\(ownerRef\.current/);
   assert.match(polling, /document\.addEventListener\("visibilitychange"/);
-  assert.match(polling, /controllerRef\.current\?\.abort\(\)/);
+  assert.match(polling, /requestSlotRef\.current\.cancel\(owner\)/);
   assert.match(polling, /window\.setTimeout/);
   assert.doesNotMatch(polling, /window\.setInterval/);
 
@@ -472,7 +472,7 @@ test("websocket clients recover missed revisions and retain polling fallback", a
   assert.match(liveSync, /revision <= \(requestedRevisions\.get\(boothId\) \|\| 0\)/);
   assert.match(liveSync, /sockets\.get\(boothId\) !== socket/);
   assert.match(polling, /intervalMs = 15_000/);
-  assert.match(polling, /\(!enabled && !force\)/);
+  assert.match(polling, /\(!enabledRef\.current && !force\)/);
   assert.match(dashboard, /liveSyncStatus !== "connected"/);
   assert.match(dashboard, /Live updates connected/);
   assert.match(dashboard, /Reconnecting — polling every 15 seconds/);
