@@ -39,6 +39,21 @@ test('actual booth creation handler assigns selected active scouts with default 
  assert.equal(assignment.scout_id,50); assert.equal(assignment.attendance_start,'2026-02-01T18:00:00.000Z'); assert.equal(assignment.attendance_end,'2026-02-01T20:00:00.000Z'); assert.equal(assignment.stayed_through_close,1);
 });
 
+test('booth creation keeps scouts optional and rejects duplicate, archived, unknown, cross-tenant, and partial assignments',async()=>{
+ const make=(scoutIds,startsAt='2026-03-01T23:30:00.000Z',endsAt='2026-03-02T01:00:00.000Z')=>new Request('https://app.test/api/booths',{method:'POST',headers:{'content-type':'application/json',origin:'https://app.test'},body:JSON.stringify({organizationId:1,name:'Boundary Booth',address:'456 Test St',startsAt,endsAt,scoutIds})});
+ let response=await boothRoute.POST(make([])); assert.equal(response.status,201);
+ response=await boothRoute.POST(make([50])); assert.equal(response.status,201); const {boothId}=await response.json();
+ const crossMidnight=sqlite.prepare('SELECT attendance_start,attendance_end,stayed_through_close FROM booth_scout_assignments WHERE booth_id=?').get(boothId);
+ assert.equal(crossMidnight.attendance_start,'2026-03-01T23:30:00.000Z'); assert.equal(crossMidnight.attendance_end,'2026-03-02T01:00:00.000Z'); assert.equal(crossMidnight.stayed_through_close,1);
+ const before=sqlite.prepare('SELECT COUNT(*) count FROM booths').get().count;
+ assert.equal((await boothRoute.POST(make([50,50]))).status,400);
+ assert.equal((await boothRoute.POST(make([51]))).status,403);
+ assert.equal((await boothRoute.POST(make([999]))).status,403);
+ assert.equal((await boothRoute.POST(make([60]))).status,403);
+ assert.equal((await boothRoute.POST(make([50,999]))).status,403);
+ assert.equal(sqlite.prepare('SELECT COUNT(*) count FROM booths').get().count,before);
+});
+
 test('actual attendance handler rejects stale, invalid, archived-new, and cross-organization assignments',async()=>{
  const before=sqlite.prepare('SELECT * FROM booth_scout_assignments').all();
  assert.equal((await route.PUT(request({organizationId:1,boothId:10,revision:'stale',assignments:[]}))).status,409);

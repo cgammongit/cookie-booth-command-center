@@ -516,17 +516,41 @@ test("successful booth mutations broadcast authoritative event topics", async ()
 });
 
 test("booth scout roster renders a time sheet above an accessible compact selector", async () => {
-  const source = await readFile(new URL("../app/booth-scout-attendance.tsx", import.meta.url), "utf8");
+  const [source, selector] = await Promise.all([readFile(new URL("../app/booth-scout-attendance.tsx", import.meta.url), "utf8"), readFile(new URL("../app/scout-multi-select.tsx", import.meta.url), "utf8")]);
   const timeSheet = source.indexOf('className="scoutTimeSheet boothScoutPanel"');
   const attendance = source.indexOf('className="scoutAttendance boothScoutPanel"');
   assert.ok(timeSheet >= 0 && attendance > timeSheet);
   assert.match(source, /<th scope="col">Name<\/th><th scope="col">Start Time<\/th><th scope="col">End Time<\/th>/);
   assert.doesNotMatch(source, /type="date"|type="datetime-local"/);
   assert.match(source, /<select aria-label=\{`\$\{item\.name\} start time`\}/);
-  assert.match(source, /aria-haspopup="listbox"/);
-  assert.match(source, /aria-multiselectable="true"/);
-  assert.match(source, /role="option" aria-selected=\{selected\}/);
-  assert.match(source, /selected \? "✓" : ""/);
+  assert.match(source, /<ScoutMultiSelect/);
+  assert.match(selector, /aria-haspopup="listbox"/);
+  assert.match(selector, /aria-multiselectable="true"/);
+  assert.match(selector, /role="option" aria-selected=\{selected\}/);
+  assert.match(selector, /selected \? "✓" : ""/);
+  assert.match(selector, /event\.key === "Escape"/);
+  assert.match(selector, /document\.addEventListener\("pointerdown", outside\)/);
+  assert.match(selector, /type="button"/);
   assert.match(source, /No active scouts are available\. Add scouts in Scout Directory/);
   assert.match(source, /15 \* 60 \* 1000/);
+});
+
+test("booth creation uses the shared compact scout multi-select", async () => {
+  const [dashboard, attendance, selector, styles] = await Promise.all([
+    readFile(new URL("../app/dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/booth-scout-attendance.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/scout-multi-select.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(dashboard, /<legend>Assigned Scouts<\/legend><ScoutMultiSelect/);
+  assert.match(dashboard, /triggerLabel="Select assigned scouts"/);
+  assert.match(dashboard, /selectedIds=\{selectedScoutIds\}/);
+  assert.doesNotMatch(dashboard, /<legend>Assigned Scouts<\/legend>\{activeScouts\.map/);
+  assert.match(attendance, /<ScoutMultiSelect/);
+  assert.match(selector, /No scouts selected/);
+  assert.match(selector, /selectedNames\.length === 1 \? selectedNames\[0\]/);
+  assert.match(selector, /`\$\{selectedNames\.length\} scouts selected`/);
+  assert.match(selector, />Close<\/button>/);
+  assert.match(styles, /max-height:min\(320px,55vh\);overflow-y:auto/);
+  assert.match(styles, /overflow-wrap:anywhere/);
 });
