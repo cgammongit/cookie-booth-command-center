@@ -341,11 +341,11 @@ export function Reports({
           {view === "scouts" && (
             <section className="peoplePanel reportTablePanel">
               <div className="panelHeading"><div><p className="eyebrow">FINALIZED CREDIT</p><h2>Total Cookie Sales per Scout</h2></div></div>
-              <div className="reportTable itemReportTable">
+              <div className="reportTable scoutSalesReportTable">
                 <div className="reportTableHead"><span>Scout</span><span>Age level</span><span>Credited boxes</span><span>Reconciled booths</span></div>
-                {report.scoutSales.map((scout) => <details key={scout.scoutId}>
-                  <summary><strong>{scout.scoutName}{scout.archived ? " (archived)" : ""}</strong><span>{scout.ageLevel}</span><span>{boxes(scout.creditedBoxes)}</span><span>{scout.reconciledBooths}</span></summary>
-                  {scout.booths.map((booth) => <div key={booth.boothId}><strong>{booth.boothName}</strong><span>{boxes(booth.creditedBoxes)} boxes</span><span>{booth.products.map((product) => `${product.productName}: ${boxes(product.creditedBoxes)}`).join(" · ")}</span></div>)}
+                {report.scoutSales.map((scout) => <details className="scoutSalesRow" key={scout.scoutId}>
+                  <summary><strong className="scoutSalesCell" aria-label={`Scout: ${scout.scoutName}${scout.archived ? ", archived" : ""}`}>{scout.scoutName}{scout.archived ? " (archived)" : ""}</strong><span className="scoutSalesCell" aria-label={`Age level: ${scout.ageLevel}`}>{scout.ageLevel}</span><span className="scoutSalesCell scoutSalesNumeric" aria-label={`Credited boxes: ${boxes(scout.creditedBoxes)}`}>{boxes(scout.creditedBoxes)}</span><span className="scoutSalesCell scoutSalesNumeric" aria-label={`Reconciled booths: ${scout.reconciledBooths}`}>{scout.reconciledBooths}</span></summary>
+                  {scout.booths.map((booth) => <div className="scoutSalesBreakdown" key={booth.boothId}><strong>{booth.boothName}</strong><span className="scoutSalesNumeric">{boxes(booth.creditedBoxes)} boxes</span><span>{booth.products.map((product) => `${product.productName}: ${boxes(product.creditedBoxes)}`).join(" · ")}</span></div>)}
                 </details>)}
                 {!report.scoutSales.length && <p className="loadingState">No finalized scout credit is available for this report scope.</p>}
               </div>
