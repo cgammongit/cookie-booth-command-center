@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
+import { ScoutMultiSelect } from "./scout-multi-select";
 
 type Scout = { id: number; name: string; ageLevel: string; archivedAt: string | null };
 type Attendance = { scoutId: number; name: string; ageLevel: string; archivedAt: string | null; attendanceStart: string; attendanceEnd: string; stayedThroughClose: boolean };
@@ -22,9 +23,9 @@ function timeLabel(value: string, boothStart: string) {
 export function BoothScoutAttendance({ organizationId, booth }: { organizationId: number; booth: { id: number; startsAt: string; endsAt: string; status: string } }) {
   const [scouts, setScouts] = useState<Scout[]>([]); const [assignments, setAssignments] = useState<Attendance[]>([]);
   const [permissions, setPermissions] = useState<Permissions>({ canManageRoster: false, canEditTimes: false });
-  const [revision, setRevision] = useState(""); const [open, setOpen] = useState(false); const [dirty, setDirty] = useState(false);
+  const [revision, setRevision] = useState(""); const [dirty, setDirty] = useState(false);
   const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [saving, setSaving] = useState(false);
-  const menuId = useId(); const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
   const options = [...new Set([...timeOptions(booth.startsAt, booth.endsAt), ...assignments.flatMap((item) => [item.attendanceStart, item.attendanceEnd])])].sort((a, b) => Date.parse(a) - Date.parse(b));
   const load = useCallback(async () => {
     const response = await fetch(`/api/admin/booth-scouts?organizationId=${organizationId}&boothId=${booth.id}`, { cache: "no-store" });
@@ -34,13 +35,7 @@ export function BoothScoutAttendance({ organizationId, booth }: { organizationId
     setPermissions(payload.permissions || { canManageRoster: false, canEditTimes: false }); setRevision(payload.booth?.revision || ""); setDirty(false);
   }, [booth.id, organizationId]);
   useEffect(() => { let active = true; queueMicrotask(() => { void load().catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "Unable to load scout attendance"); }); }); return () => { active = false; }; }, [load]);
-  useEffect(() => {
-    if (!open) return;
-    const outside = (event: PointerEvent) => { if (!menuRef.current?.contains(event.target as Node)) setOpen(false); };
-    document.addEventListener("pointerdown", outside); return () => document.removeEventListener("pointerdown", outside);
-  }, [open]);
-  const locked = booth.status === "closed"; const selectedNames = assignments.map((item) => item.name);
-  const summary = selectedNames.length === 0 ? "No scouts selected" : selectedNames.length === 1 ? selectedNames[0] : `${selectedNames.length} scouts selected`;
+  const locked = booth.status === "closed";
   function toggle(scout: Scout) {
     const assignment = assignments.find((item) => item.scoutId === scout.id);
     setAssignments((current) => assignment ? current.filter((item) => item.scoutId !== scout.id) : [...current, { scoutId: scout.id, name: scout.name, ageLevel: scout.ageLevel, archivedAt: scout.archivedAt, attendanceStart: booth.startsAt, attendanceEnd: booth.endsAt, stayedThroughClose: true }]);
@@ -70,13 +65,7 @@ export function BoothScoutAttendance({ organizationId, booth }: { organizationId
       <p className="eyebrow">SCOUT ATTENDANCE</p><h3 id={`${menuId}-attendance-title`}>Scout Attendance</h3>
       <small>Select the scouts active at this booth. New scouts default to the scheduled start and end.</small>
       {error && <div className="alert errorAlert" role="alert">{error}</div>}{notice && <div className="alert" role="status">{notice}</div>}
-      <div className="scoutMultiSelect" ref={menuRef}>
-        <button type="button" className="scoutSelectTrigger" aria-haspopup="listbox" aria-expanded={open} aria-controls={menuId} disabled={locked || saving || !permissions.canManageRoster} onClick={() => setOpen((value) => !value)} onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }}><span><strong>Select active scouts</strong><small>{summary}</small></span><span aria-hidden="true">{open ? "▲" : "▼"}</span></button>
-        {open && <div id={menuId} className="scoutSelectMenu" role="listbox" aria-multiselectable="true" onKeyDown={(event) => { if (event.key === "Escape") { setOpen(false); (menuRef.current?.querySelector("button") as HTMLButtonElement | null)?.focus(); } }}>
-          {scouts.map((scout) => { const selected = assignments.some((item) => item.scoutId === scout.id); return <button type="button" role="option" aria-selected={selected} key={scout.id} disabled={saving || Boolean(scout.archivedAt && !selected)} onClick={() => toggle(scout)}><span className="scoutOptionCheck" aria-hidden="true">{selected ? "✓" : ""}</span><span><strong>{scout.name}</strong><small>{scout.ageLevel}{scout.archivedAt ? " · archived" : ""}</small></span></button>; })}
-          {!scouts.length && <div className="scoutSelectEmpty">No active scouts are available. Add scouts in Scout Directory under People &amp; Roles.</div>}
-        </div>}
-      </div>
+      <ScoutMultiSelect options={scouts.map((scout) => ({ id: scout.id, name: scout.name, detail: `${scout.ageLevel}${scout.archivedAt ? " · archived" : ""}`, disabled: Boolean(scout.archivedAt && !assignments.some((item) => item.scoutId === scout.id)) }))} selectedIds={assignments.map((item) => item.scoutId)} onToggle={(option) => { const scout = scouts.find((item) => item.id === option.id); if (scout) toggle(scout); }} triggerLabel="Select active scouts" emptyMessage="No active scouts are available. Add scouts in Scout Directory under People & Roles." disabled={locked || !permissions.canManageRoster} pending={saving} />
       <button type="button" className="primary" disabled={locked || saving || !dirty || !permissions.canManageRoster} onClick={() => void save()}>{locked ? "Locked after reconciliation" : saving ? "Saving…" : dirty ? "Save scout changes" : "Scout changes saved"}</button>
     </section>
   </div>;

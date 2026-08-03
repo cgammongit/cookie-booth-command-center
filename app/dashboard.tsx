@@ -9,6 +9,7 @@ import { GooglePlaceField, type SelectedPlace } from "./google-place-field";
 import { InventoryManagement } from "./inventory-management";
 import { PeopleRoles } from "./people-roles";
 import { Reports } from "./reports";
+import { ScoutMultiSelect } from "./scout-multi-select";
 import { TroopInventory } from "./troop-inventory";
 import { SuperAdminDashboard } from "./super-admin-dashboard";
 import { useActivePolling } from "./use-active-polling";
@@ -964,7 +965,7 @@ export function Dashboard({
             </label>
             <label>Starts<input required type="datetime-local" value={boothDraft.startsAt} onChange={(event) => setBoothDraft({ ...boothDraft, startsAt: event.target.value })} /></label>
             <label>Ends<input required type="datetime-local" value={boothDraft.endsAt} onChange={(event) => setBoothDraft({ ...boothDraft, endsAt: event.target.value })} /></label>
-            <fieldset><legend>Assigned scouts</legend>{activeScouts.map((scout) => <label key={scout.id} className="inviteToggle"><input type="checkbox" checked={selectedScoutIds.includes(scout.id)} onChange={(event) => setSelectedScoutIds((current) => event.target.checked ? [...current, scout.id] : current.filter((id) => id !== scout.id))} /><span>{scout.name} · {scout.ageLevel}</span></label>)}{!activeScouts.length && <small>Add active scouts in People &amp; Roles to assign them here.</small>}</fieldset>
+            <fieldset><legend>Assigned Scouts</legend><ScoutMultiSelect options={activeScouts.map((scout) => ({ id: scout.id, name: scout.name, detail: scout.ageLevel }))} selectedIds={selectedScoutIds} onToggle={(scout) => setSelectedScoutIds((current) => current.includes(scout.id) ? current.filter((id) => id !== scout.id) : [...current, scout.id])} triggerLabel="Select assigned scouts" emptyMessage="No active scouts are available. Add scouts in Scout Directory under People & Roles. You can still create this booth without scouts." disabled={creating} /></fieldset>
             <button className="primary" disabled={creating}>{creating ? "Creating…" : "Create booth"}</button>
           </form>
         </section>
