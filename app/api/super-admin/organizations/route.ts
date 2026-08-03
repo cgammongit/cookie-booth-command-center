@@ -18,6 +18,8 @@ type OrganizationSummary = {
   inventoryTransactionCount: number;
   salesCount: number;
   auditCount: number;
+  scoutCount: number;
+  scoutCreditCount: number;
   latestActivityAt: string | null;
 };
 
@@ -26,6 +28,8 @@ const summarySql = `
     (SELECT COUNT(*) FROM memberships m WHERE m.organization_id = o.id) AS memberCount,
     (SELECT COUNT(*) FROM products p WHERE p.organization_id = o.id) AS productCount,
     (SELECT COUNT(*) FROM booths b WHERE b.organization_id = o.id) AS boothCount,
+    (SELECT COUNT(*) FROM scouts sc WHERE sc.organization_id = o.id) AS scoutCount,
+    (SELECT COUNT(*) FROM scout_sales_credits c WHERE c.organization_id = o.id) AS scoutCreditCount,
     (SELECT COUNT(*) FROM inventory_ledger l WHERE l.organization_id = o.id) AS inventoryTransactionCount,
     (SELECT COUNT(*) FROM sales s JOIN booths b ON b.id = s.booth_id WHERE b.organization_id = o.id) AS salesCount,
     (
@@ -105,12 +109,15 @@ export async function POST(request: Request) {
     inventoryTransactions: Number(organization.inventoryTransactionCount),
     sales: Number(organization.salesCount),
     regularAuditEvents: Number(organization.auditCount),
+    scouts: Number(organization.scoutCount),
+    scoutCredits: Number(organization.scoutCreditCount),
   };
   const organizationId = organization.id;
 
   const boothScoped = (sql: string) => env.DB.prepare(sql).bind(organizationId);
   try {
     await env.DB.batch([
+      boothScoped("DELETE FROM scout_sales_credits WHERE organization_id = ?"),
       boothScoped(`DELETE FROM reconciliation_items WHERE reconciliation_id IN (
         SELECT r.id FROM reconciliations r JOIN booths b ON b.id = r.booth_id
         WHERE b.organization_id = ?
@@ -130,6 +137,7 @@ export async function POST(request: Request) {
       boothScoped(`DELETE FROM assignments WHERE booth_id IN (
         SELECT id FROM booths WHERE organization_id = ?
       )`),
+      boothScoped("DELETE FROM booth_scout_assignments WHERE organization_id = ?"),
       boothScoped("DELETE FROM admin_alerts WHERE organization_id = ?"),
       boothScoped("DELETE FROM booth_lifecycle_audit WHERE organization_id = ?"),
       boothScoped("DELETE FROM inventory_configuration_audit WHERE organization_id = ?"),
@@ -138,6 +146,7 @@ export async function POST(request: Request) {
       boothScoped("DELETE FROM access_audit_log WHERE organization_id = ?"),
       boothScoped("DELETE FROM product_catalog_audit WHERE organization_id = ?"),
       boothScoped("DELETE FROM booths WHERE organization_id = ?"),
+      boothScoped("DELETE FROM scouts WHERE organization_id = ?"),
       env.DB.prepare(`
         INSERT INTO super_admin_audit_log (
           actor_clerk_user_id, actor_user_id, actor_display_name, action,

@@ -34,9 +34,18 @@ type Report = {
     expectedCash: number; cashTurnedIn: number; cashDiscrepancy: number;
     inventoryDiscrepancy: number; notes: string | null;
   }>;
+  scoutSales: Array<{
+    scoutId: number; scoutName: string; ageLevel: string; archived: boolean;
+    creditedBoxes: number; reconciledBooths: number;
+    booths: Array<{ boothId: number; boothName: string; creditedBoxes: number; products: Array<{ productId: number; productName: string; creditedBoxes: number }> }>;
+  }>;
 };
 
-type ReportView = "gross" | "items" | "reconciliation";
+type ReportView = "gross" | "items" | "reconciliation" | "scouts";
+
+function boxes(value: number) {
+  return Number(value).toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
 
 const money = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -145,6 +154,12 @@ export function Reports({
           item.productName, item.boxCount, Number(item.gross).toFixed(2),
         ]),
       ];
+    } else if (view === "scouts") {
+      suffix = "total-cookie-sales-per-scout";
+      rows = [
+        ["Scout", "Age level", "Finalized credited boxes", "Reconciled booths"],
+        ...report.scoutSales.map((scout) => [scout.scoutName, scout.ageLevel, boxes(scout.creditedBoxes), scout.reconciledBooths]),
+      ];
     } else if (view === "reconciliation") {
       suffix = "booth-reconciliation";
       rows = [
@@ -235,7 +250,7 @@ export function Reports({
         <>
           <section className="reportPrintHeading">
             <p className="eyebrow">{organizationName}</p>
-            <h2>{view === "gross" ? "Gross sales report" : view === "items" ? "Itemized cookie sales report" : "Reconciliation report"}</h2>
+            <h2>{view === "gross" ? "Gross sales report" : view === "items" ? "Itemized cookie sales report" : view === "scouts" ? "Total Cookie Sales per Scout" : "Reconciliation report"}</h2>
             <p>
               {selectedNames.map((booth) => booth.name).join(", ")}
               {report.filters.from || report.filters.to
@@ -247,6 +262,7 @@ export function Reports({
             <button className={view === "gross" ? "active" : ""} onClick={() => setView("gross")}>Gross & payments</button>
             <button className={view === "items" ? "active" : ""} onClick={() => setView("items")}>Itemized cookies</button>
             <button className={view === "reconciliation" ? "active" : ""} onClick={() => setView("reconciliation")}>Reconciliation</button>
+            <button className={view === "scouts" ? "active" : ""} onClick={() => setView("scouts")}>Total Cookie Sales per Scout</button>
             <span />
             <button onClick={exportCsv}>Export CSV</button>
             <button onClick={() => window.print()}>Print / PDF</button>
@@ -319,6 +335,19 @@ export function Reports({
                   </div>
                 ))}
                 {!report.reconciliations.length && <p className="loadingState">No selected booths have been reconciled yet.</p>}
+              </div>
+            </section>
+          )}
+          {view === "scouts" && (
+            <section className="peoplePanel reportTablePanel">
+              <div className="panelHeading"><div><p className="eyebrow">FINALIZED CREDIT</p><h2>Total Cookie Sales per Scout</h2></div></div>
+              <div className="reportTable itemReportTable">
+                <div className="reportTableHead"><span>Scout</span><span>Age level</span><span>Credited boxes</span><span>Reconciled booths</span></div>
+                {report.scoutSales.map((scout) => <details key={scout.scoutId}>
+                  <summary><strong>{scout.scoutName}{scout.archived ? " (archived)" : ""}</strong><span>{scout.ageLevel}</span><span>{boxes(scout.creditedBoxes)}</span><span>{scout.reconciledBooths}</span></summary>
+                  {scout.booths.map((booth) => <div key={booth.boothId}><strong>{booth.boothName}</strong><span>{boxes(booth.creditedBoxes)} boxes</span><span>{booth.products.map((product) => `${product.productName}: ${boxes(product.creditedBoxes)}`).join(" · ")}</span></div>)}
+                </details>)}
+                {!report.scoutSales.length && <p className="loadingState">No finalized scout credit is available for this report scope.</p>}
               </div>
             </section>
           )}

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireBoothAccess } from "../../../../../lib/access";
 import { broadcastBoothEvent } from "../../../../../lib/booth-live";
 import { getEffectiveBoothStatus } from "../../../../../lib/booth-status";
+import { calculateBoothScoutCredit, sumRational } from "../../../../../lib/scout-credit";
 
 const reconciliationSchema = z.object({
   cashTurnedIn: z.number().finite().min(0).max(1000000),
@@ -73,6 +74,25 @@ export async function POST(
   ).bind(boothId).first();
   if (existingReconciliation) {
     return Response.json({ error: "This booth has already been reconciled" }, { status: 409 });
+  }
+
+  const scoutCredit = await calculateBoothScoutCredit(
+    env.DB,
+    authorization.access.organizationId,
+    boothId,
+    booth,
+  );
+  const allocated = sumRational(scoutCredit.allocations);
+  const totalSold = scoutCredit.lines.reduce((total, line) => total + line.quantity, 0);
+  if (
+    scoutCredit.unallocatedTransactionIds.length ||
+    scoutCredit.integrityErrors.length ||
+    allocated.numerator !== BigInt(totalSold) * allocated.denominator
+  ) {
+    return Response.json(
+      { error: "Scout attendance and sales credit must be complete and balanced before reconciliation" },
+      { status: 409 },
+    );
   }
 
   const inventory = await env.DB.prepare(`
@@ -247,6 +267,26 @@ export async function POST(
         ),
       );
     }
+  }
+
+
+  for (const credit of scoutCredit.allocations) {
+    statements.push(env.DB.prepare(`
+      INSERT INTO scout_sales_credits (
+        organization_id, booth_id, sale_id, transaction_id, scout_id,
+        reconciliation_id, credit_numerator, credit_denominator, finalized_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      authorization.access.organizationId,
+      boothId,
+      credit.saleId,
+      credit.transactionId,
+      credit.scoutId,
+      reconciliationId,
+      credit.numerator,
+      credit.denominator,
+      closedAt,
+    ));
   }
 
   statements.push(

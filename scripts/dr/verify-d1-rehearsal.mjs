@@ -21,12 +21,15 @@ SELECT
   (SELECT COUNT(*) FROM organization_invitations) AS invitations,
   (SELECT COUNT(*) FROM booths) AS booths,
   (SELECT COUNT(*) FROM assignments) AS assignments,
+  (SELECT COUNT(*) FROM scouts) AS scouts,
+  (SELECT COUNT(*) FROM booth_scout_assignments) AS scoutAssignments,
   (SELECT COUNT(*) FROM products) AS products,
   (SELECT COUNT(*) FROM inventory) AS boothInventory,
   (SELECT COUNT(*) FROM sales) AS sales,
   (SELECT COUNT(*) FROM transactions WHERE type IN ('adjustment','correction')) AS adjustments,
   (SELECT COUNT(*) FROM reconciliations) AS reconciliations,
   (SELECT COUNT(*) FROM reconciliation_items) AS reconciliationItems,
+  (SELECT COUNT(*) FROM scout_sales_credits) AS scoutCredits,
   (SELECT COUNT(*) FROM troop_inventory_balances) AS troopBalances,
   (SELECT COUNT(*) FROM inventory_ledger) AS inventoryLedger,
   (SELECT COUNT(*) FROM access_audit_log) AS accessAudit,
@@ -53,6 +56,18 @@ SELECT
     WHERE total_remaining<0 OR available<0 OR available>total_remaining) AS negativeTroopInventory,
   (SELECT COUNT(*) FROM inventory
     WHERE opening<0 OR sold<0 OR opening-sold+adjusted<0) AS negativeBoothInventory
+  ,(SELECT COUNT(*) FROM scouts sc LEFT JOIN organizations o ON o.id=sc.organization_id
+    WHERE o.id IS NULL) AS orphanScouts
+  ,(SELECT COUNT(*) FROM booth_scout_assignments a
+    LEFT JOIN booths b ON b.id=a.booth_id LEFT JOIN scouts sc ON sc.id=a.scout_id
+    WHERE b.id IS NULL OR sc.id IS NULL OR a.organization_id<>b.organization_id OR a.organization_id<>sc.organization_id OR a.attendance_start>=a.attendance_end) AS invalidScoutAssignments
+  ,(SELECT COUNT(*) FROM scout_sales_credits c
+    LEFT JOIN booths b ON b.id=c.booth_id LEFT JOIN scouts sc ON sc.id=c.scout_id
+    LEFT JOIN sales s ON s.id=c.sale_id LEFT JOIN transactions t ON t.id=c.transaction_id
+    LEFT JOIN reconciliations r ON r.id=c.reconciliation_id
+    WHERE b.id IS NULL OR sc.id IS NULL OR s.id IS NULL OR t.id IS NULL OR r.id IS NULL
+      OR c.organization_id<>b.organization_id OR c.organization_id<>sc.organization_id
+      OR s.booth_id<>c.booth_id OR t.sale_id<>c.sale_id OR c.credit_numerator<=0 OR c.credit_denominator<=0) AS invalidScoutCredits
 `.trim();
 
 function rowsFromWranglerJson(output) {
@@ -130,6 +145,9 @@ export async function runVerification({
       "crossTenantInventory",
       "negativeTroopInventory",
       "negativeBoothInventory",
+      "orphanScouts",
+      "invalidScoutAssignments",
+      "invalidScoutCredits",
     ];
     snapshot = {
       tables: tableRows.map((row) => row.name),

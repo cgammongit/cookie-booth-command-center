@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { getOrganizationAccess } from "../../../../lib/access";
 import { hasOrganizationPermission } from "../../../../lib/organization-permissions";
+import { sumRational } from "../../../../lib/scout-credit";
 
 const querySchema = z.object({
   organizationId: z.coerce.number().int().positive(),
@@ -45,6 +46,20 @@ type ReconciliationRow = {
   cashDiscrepancy: number;
   inventoryDiscrepancy: number;
   notes: string | null;
+};
+
+type ScoutCreditRow = {
+  scoutId: number; scoutName: string; ageLevel: string; archivedAt: string | null;
+  boothId: number; boothName: string; productId: number; productName: string;
+  creditNumerator: number; creditDenominator: number;
+};
+type Fraction = { numerator: number; denominator: number };
+type ProductCreditAccumulator = { productId: number; productName: string; credits: Fraction[] };
+type BoothCreditAccumulator = { boothId: number; boothName: string; credits: Fraction[]; products: Map<number, ProductCreditAccumulator> };
+type ScoutReportAccumulator = {
+  scoutId: number; scoutName: string; ageLevel: string; archived: boolean;
+  credits: Fraction[];
+  booths: Map<number, BoothCreditAccumulator>;
 };
 
 function parseBoothIds(value: string) {
@@ -123,7 +138,7 @@ export async function GET(request: Request) {
   }
   const dateSql = dateClauses.length ? `AND ${dateClauses.join(" AND ")}` : "";
 
-  const [sales, items, reconciliations] = await Promise.all([
+  const [sales, items, reconciliations, scoutCredits] = await Promise.all([
     env.DB.prepare(`
       SELECT b.id AS boothId, b.name AS boothName,
         COUNT(s.id) AS saleCount,
@@ -169,7 +184,46 @@ export async function GET(request: Request) {
       WHERE b.organization_id = ? AND b.id IN (${placeholders})
       ORDER BY r.closed_at DESC, b.name
     `).bind(parsed.data.organizationId, ...boothIds).all<ReconciliationRow>(),
+    env.DB.prepare(`
+      SELECT sc.id AS scoutId, sc.name AS scoutName, sc.age_level AS ageLevel,
+        sc.archived_at AS archivedAt, b.id AS boothId, b.name AS boothName,
+        p.id AS productId, p.name AS productName,
+        c.credit_numerator AS creditNumerator, c.credit_denominator AS creditDenominator
+      FROM scout_sales_credits c
+      JOIN scouts sc ON sc.id = c.scout_id
+      JOIN booths b ON b.id = c.booth_id
+      JOIN transactions t ON t.id = c.transaction_id
+      JOIN sales s ON s.id = c.sale_id
+      JOIN products p ON p.id = t.product_id
+      WHERE c.organization_id = ? AND c.booth_id IN (${placeholders})
+        ${dateSql}
+      ORDER BY sc.name COLLATE NOCASE, b.starts_at, p.name
+    `).bind(parsed.data.organizationId, ...boothIds, ...dateBindings).all<ScoutCreditRow>(),
   ]);
+
+  const scoutMap = new Map<number, ScoutReportAccumulator>();
+  for (const row of scoutCredits.results) {
+    const scout: ScoutReportAccumulator = scoutMap.get(Number(row.scoutId)) || { scoutId: Number(row.scoutId), scoutName: row.scoutName, ageLevel: row.ageLevel, archived: Boolean(row.archivedAt), credits: [], booths: new Map() };
+    const fraction = { numerator: Number(row.creditNumerator), denominator: Number(row.creditDenominator) };
+    scout.credits.push(fraction);
+    const booth: BoothCreditAccumulator = scout.booths.get(Number(row.boothId)) || { boothId: Number(row.boothId), boothName: row.boothName, credits: [], products: new Map() };
+    booth.credits.push(fraction);
+    const product: ProductCreditAccumulator = booth.products.get(Number(row.productId)) || { productId: Number(row.productId), productName: row.productName, credits: [] };
+    product.credits.push(fraction);
+    booth.products.set(product.productId, product);
+    scout.booths.set(booth.boothId, booth);
+    scoutMap.set(scout.scoutId, scout);
+  }
+  const scoutSales = [...scoutMap.values()].map((scout) => ({
+    scoutId: scout.scoutId, scoutName: scout.scoutName, ageLevel: scout.ageLevel,
+    archived: scout.archived, creditedBoxes: sumRational(scout.credits).value,
+    reconciledBooths: scout.booths.size,
+    booths: [...scout.booths.values()].map((booth) => ({
+      boothId: booth.boothId, boothName: booth.boothName,
+      creditedBoxes: sumRational(booth.credits).value,
+      products: [...booth.products.values()].map((product) => ({ productId: product.productId, productName: product.productName, creditedBoxes: sumRational(product.credits).value })),
+    })),
+  }));
 
   const totals = sales.results.reduce(
     (total, booth) => ({
@@ -199,6 +253,7 @@ export async function GET(request: Request) {
       boothSales: sales.results,
       itemSales: items.results,
       reconciliations: reconciliations.results,
+      scoutSales,
     },
   });
 }
