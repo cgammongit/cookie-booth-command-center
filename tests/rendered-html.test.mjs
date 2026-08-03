@@ -111,6 +111,28 @@ test("troop inventory history uses the movement display dimension helper", async
   assert.match(displayHelper, /movement\.availableDelta[\s\S]*movement\.totalDelta/);
 });
 
+test("member access options exclude Pending while invitations retain pending actions", async () => {
+  const peopleRoles = await readFile(
+    new URL("../app/people-roles.tsx", import.meta.url),
+    "utf8",
+  );
+  const invitations = peopleRoles.slice(
+    peopleRoles.indexOf("<h2>Organization invitations</h2>"),
+    peopleRoles.indexOf("<h2>Organization members</h2>"),
+  );
+  const members = peopleRoles.slice(
+    peopleRoles.indexOf("<h2>Organization members</h2>"),
+    peopleRoles.indexOf('<section className="auditPanel">'),
+  );
+
+  assert.match(members, /<option value="active">Active<\/option>/);
+  assert.match(members, /value="suspended"[\s\S]*Suspended/);
+  assert.doesNotMatch(members, /value="pending"[\s\S]*Pending/);
+  assert.match(invitations, /invitation\.status === "pending"/);
+  assert.match(invitations, />\s*Resend\s*</);
+  assert.match(invitations, />\s*Cancel\s*</);
+});
+
 test("inventory allocation UI validates activity minimums without locking active booths", async () => {
   const inventoryManagement = await readFile(
     path.join(process.cwd(), "app", "inventory-management.tsx"),
