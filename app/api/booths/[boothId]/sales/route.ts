@@ -23,6 +23,61 @@ type ProductRow = {
   totalRemaining: number;
 };
 
+type RecentSaleRow = {
+  id: string;
+  paymentMethod: "cash" | "credit_card" | "venmo_paypal";
+  boxCount: number;
+  totalAmount: number;
+  createdAt: string;
+  operatorName: string | null;
+};
+
+export async function GET(
+  _request: Request,
+  context: { params: Promise<{ boothId: string }> },
+) {
+  const { boothId: rawBoothId } = await context.params;
+  const boothId = Number(rawBoothId);
+  if (!Number.isInteger(boothId) || boothId < 1) {
+    return Response.json({ error: "Invalid booth" }, { status: 400 });
+  }
+  const authorization = await requireBoothAccess(boothId, "view");
+  if (authorization.error) return authorization.error;
+
+  const sales = await env.DB.prepare(`
+    SELECT s.id, s.payment_method AS paymentMethod, s.box_count AS boxCount,
+      s.total_amount AS totalAmount, s.created_at AS createdAt,
+      u.display_name AS operatorName
+    FROM sales s
+    LEFT JOIN users u ON u.id = s.operator_id
+    WHERE s.booth_id = ?
+      AND NOT EXISTS (SELECT 1 FROM sale_reversals r WHERE r.sale_id = s.id)
+    ORDER BY s.created_at DESC, s.id DESC
+    LIMIT 5
+  `).bind(boothId).all<RecentSaleRow>();
+
+  const ids = sales.results.map((sale) => sale.id);
+  const items = ids.length ? await env.DB.prepare(`
+    SELECT t.sale_id AS saleId, t.product_id AS productId, p.name,
+      t.quantity, t.amount
+    FROM transactions t
+    JOIN products p ON p.id = t.product_id
+    WHERE t.type = 'sale' AND t.sale_id IN (${ids.map(() => "?").join(",")})
+    ORDER BY p.name, t.id
+  `).bind(...ids).all<{
+    saleId: string; productId: number; name: string; quantity: number; amount: number;
+  }>() : { results: [] };
+
+  return Response.json({
+    sales: sales.results.map((sale) => ({
+      ...sale,
+      operatorName: sale.operatorName?.trim() || "Booth operator",
+      items: items.results.filter((item) => item.saleId === sale.id),
+    })),
+    permissions: { canReverseSales: authorization.access.canReverseSales },
+  });
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ boothId: string }> },
@@ -107,7 +162,12 @@ export async function POST(
     env.DB.prepare(`
       INSERT INTO sales (
         id, booth_id, operator_id, payment_method, box_count, total_amount, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ) SELECT ?, ?, ?, ?, ?, ?, ?
+      WHERE EXISTS (
+        SELECT 1 FROM booths b WHERE b.id = ? AND b.archived_at IS NULL
+          AND b.status <> 'closed'
+          AND NOT EXISTS (SELECT 1 FROM reconciliations r WHERE r.booth_id = b.id)
+      )
     `).bind(
       saleId,
       boothId,
@@ -116,6 +176,7 @@ export async function POST(
       boxCount,
       totalAmount,
       createdAt,
+      boothId,
     ),
   ];
 
@@ -127,23 +188,27 @@ export async function POST(
         UPDATE inventory SET sold = sold + ?
         WHERE booth_id = ? AND product_id = ?
           AND (opening + adjusted - sold) >= ?
-      `).bind(quantity, boothId, product.productId, quantity),
+          AND EXISTS (SELECT 1 FROM sales WHERE id = ?)
+      `).bind(quantity, boothId, product.productId, quantity, saleId),
       env.DB.prepare(`
         UPDATE troop_inventory_balances
         SET total_remaining = total_remaining - ?, updated_at = ?
         WHERE organization_id = ? AND product_id = ? AND total_remaining >= ?
+          AND EXISTS (SELECT 1 FROM sales WHERE id = ?)
       `).bind(
         quantity,
         createdAt,
         authorization.access.organizationId,
         product.productId,
         quantity,
+        saleId,
       ),
       env.DB.prepare(`
         INSERT INTO transactions (
           id, sale_id, booth_id, product_id, operator_id,
           type, quantity, amount, reason, created_at
-        ) VALUES (?, ?, ?, ?, ?, 'sale', ?, ?, NULL, ?)
+        ) SELECT ?, ?, ?, ?, ?, 'sale', ?, ?, NULL, ?
+          WHERE EXISTS (SELECT 1 FROM sales WHERE id = ?)
       `).bind(
         crypto.randomUUID(),
         saleId,
@@ -153,13 +218,15 @@ export async function POST(
         quantity,
         lineAmount,
         createdAt,
+        saleId,
       ),
       env.DB.prepare(`
         INSERT INTO inventory_ledger (
           organization_id, product_id, booth_id, actor_user_id,
           movement_type, total_delta, available_delta, booth_delta,
           reason, reference, created_at
-        ) VALUES (?, ?, ?, ?, 'booth_sale', ?, 0, ?, ?, ?, ?)
+        ) SELECT ?, ?, ?, ?, 'booth_sale', ?, 0, ?, ?, ?, ?
+          WHERE EXISTS (SELECT 1 FROM sales WHERE id = ?)
       `).bind(
         authorization.access.organizationId,
         product.productId,
@@ -170,12 +237,23 @@ export async function POST(
         `Sale paid by ${parsed.data.paymentMethod}`,
         saleId,
         createdAt,
+        saleId,
       ),
     );
   }
+  statements.push(env.DB.prepare(`
+    UPDATE booths SET sales_revision = sales_revision + 1
+    WHERE id = ? AND EXISTS (SELECT 1 FROM sales WHERE id = ?)
+  `).bind(boothId, saleId));
 
   try {
-    await env.DB.batch(statements);
+    const results = await env.DB.batch(statements);
+    if (Number(results[0]?.meta?.changes || 0) !== 1) {
+      return Response.json(
+        { error: "The booth changed before the sale was recorded. Review it and try again." },
+        { status: 409 },
+      );
+    }
   } catch {
     return Response.json(
       { error: "The sale could not be completed because inventory changed. Review the counts and try again." },

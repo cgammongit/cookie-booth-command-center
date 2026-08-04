@@ -9,6 +9,7 @@ import { GooglePlaceField, type SelectedPlace } from "./google-place-field";
 import { InventoryManagement } from "./inventory-management";
 import { PeopleRoles } from "./people-roles";
 import { Reports } from "./reports";
+import { RecentSales } from "./recent-sales";
 import { ScoutMultiSelect } from "./scout-multi-select";
 import { TroopInventory } from "./troop-inventory";
 import { SuperAdminDashboard } from "./super-admin-dashboard";
@@ -144,6 +145,7 @@ export function Dashboard({
   const [reconciliationSubmitting, setReconciliationSubmitting] = useState(false);
   const [scoutCreditPreview, setScoutCreditPreview] = useState<ScoutCreditPreview | null>(null);
   const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [recentSalesRefreshToken, setRecentSalesRefreshToken] = useState(0);
   const [boothActivation, setBoothActivation] = useState(0);
   const [hydrationSettledActivation, setHydrationSettledActivation] = useState(0);
   const [hydratedActivation, setHydratedActivation] = useState(0);
@@ -376,6 +378,7 @@ export function Dashboard({
         await hydration.promise;
       }
       await Promise.all([refreshBooths(true), refreshSelectedBooth(true)]);
+      setRecentSalesRefreshToken((current) => current + 1);
     },
     onStatusChange: setLiveSyncStatus,
   });
@@ -469,6 +472,7 @@ export function Dashboard({
       } : current);
       setSaleStep(null);
       setSaleQuantities({});
+      setRecentSalesRefreshToken((current) => current + 1);
       void Promise.all([refreshBooths(true), refreshSelectedBooth(true)]);
     } catch (saleError) {
       setError(saleError instanceof Error ? saleError.message : "Unable to finish sale");
@@ -757,6 +761,16 @@ export function Dashboard({
         )}
         {inventoryLoading && <div className="loadingState">Loading live inventory…</div>}
       </section>
+      <RecentSales
+        key={`recent-sales-${selected.id}-${boothActivation}`}
+        boothId={selected.id}
+        boothClosed={selected.status === "closed"}
+        liveSyncConnected={liveSyncStatus === "connected"}
+        refreshToken={recentSalesRefreshToken}
+        onReversed={async () => {
+          await Promise.all([refreshBooths(true), refreshSelectedBooth(true)]);
+        }}
+      />
       {(permissions.canCreateBooths || role === "volunteer") && (
         <div className="liveBoothScoutManagement">
           <BoothScoutAttendance key={selected.scoutAssignmentRevision} organizationId={organizationId} booth={selected} />

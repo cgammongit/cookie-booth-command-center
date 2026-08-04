@@ -127,6 +127,7 @@ export const EXPECTED_TABLES = [
   "products",
   "inventory",
   "sales",
+  "sale_reversals",
   "transactions",
   "reconciliations",
   "reconciliation_items",
@@ -153,6 +154,7 @@ export const SAFE_COUNT_KEYS = [
   "products",
   "boothInventory",
   "sales",
+  "saleReversals",
   "adjustments",
   "reconciliations",
   "reconciliationItems",
@@ -195,6 +197,7 @@ export function evaluateVerification(snapshot, expectedCounts = null) {
     "orphanScouts",
     "invalidScoutAssignments",
     "invalidScoutCredits",
+    "invalidSaleReversals",
   ];
   for (const key of issueKeys) {
     if (snapshot.issues?.[key] !== 0) failures.push(`integrity:${key}`);

@@ -118,6 +118,7 @@ export async function POST(request: Request) {
   try {
     await env.DB.batch([
       boothScoped("DELETE FROM scout_sales_credits WHERE organization_id = ?"),
+      boothScoped("DELETE FROM sale_reversals WHERE organization_id = ?"),
       boothScoped(`DELETE FROM reconciliation_items WHERE reconciliation_id IN (
         SELECT r.id FROM reconciliations r JOIN booths b ON b.id = r.booth_id
         WHERE b.organization_id = ?

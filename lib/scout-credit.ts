@@ -109,7 +109,9 @@ export async function calculateBoothScoutCredit(db: D1Like, organizationId: numb
     db.prepare(`SELECT s.id AS saleId, t.id AS transactionId, t.product_id AS productId,
       t.quantity, s.created_at AS createdAt
       FROM sales s JOIN transactions t ON t.sale_id = s.id
-      WHERE s.booth_id = ? AND t.type = 'sale' ORDER BY s.created_at, t.id`)
+      WHERE s.booth_id = ? AND t.type = 'sale'
+        AND NOT EXISTS (SELECT 1 FROM sale_reversals r WHERE r.sale_id = s.id)
+      ORDER BY s.created_at, t.id`)
       .bind(boothId).all<CreditSaleLine>(),
   ]);
   const assignments = assignmentRows.results.map((item) => ({ ...item, scoutId: Number(item.scoutId), stayedThroughClose: Boolean(item.stayedThroughClose) }));

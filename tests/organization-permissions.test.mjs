@@ -21,6 +21,7 @@ const expectedGrants = {
     "booth.operate",
     "booth.manage",
     "booth.reconcile",
+    "booth.sales.reverse",
     "booth.create",
     "booth.archive",
     "assignment.manage",

@@ -4,7 +4,7 @@ import {
 } from "./organization-permissions";
 
 export type { OrganizationRole } from "./organization-permissions";
-export type BoothPermission = "view" | "operate" | "manage" | "reconcile" | "reports";
+export type BoothPermission = "view" | "operate" | "manage" | "reconcile" | "reverseSales" | "reports";
 
 export type BoothPolicyInput = {
   organizationId: number;
@@ -67,6 +67,9 @@ export function evaluateBoothPermission(
   }
   if (permission === "reconcile") {
     return hasOrganizationPermission(input.organizationRole, "booth.reconcile");
+  }
+  if (permission === "reverseSales") {
+    return hasOrganizationPermission(input.organizationRole, "booth.sales.reverse");
   }
   return (
     permission === "operate" &&

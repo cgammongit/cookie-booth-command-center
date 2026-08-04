@@ -80,10 +80,12 @@ export async function GET(request: Request) {
       COALESCE((
         SELECT SUM(CASE WHEN t.type = 'sale' THEN t.quantity ELSE 0 END)
         FROM transactions t WHERE t.booth_id = b.id
+          AND (t.sale_id IS NULL OR NOT EXISTS (SELECT 1 FROM sale_reversals sr WHERE sr.sale_id = t.sale_id))
       ), 0) AS boxes,
       COALESCE((
         SELECT SUM(CASE WHEN t.type = 'sale' THEN t.amount ELSE 0 END)
         FROM transactions t WHERE t.booth_id = b.id
+          AND (t.sale_id IS NULL OR NOT EXISTS (SELECT 1 FROM sale_reversals sr WHERE sr.sale_id = t.sale_id))
       ), 0) AS revenue,
       COALESCE((
         SELECT COUNT(*)
