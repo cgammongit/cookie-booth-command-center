@@ -9,6 +9,7 @@ const OTHER_ORGANIZATION_ID = 2;
 
 const OPERATIONAL_TABLES = [
   "scout_sales_credits",
+  "sale_reversals",
   "reconciliation_items",
   "reconciliations",
   "transactions",
@@ -267,6 +268,12 @@ function createSchema(database) {
       reconciliation_id INTEGER NOT NULL, credit_numerator INTEGER NOT NULL,
       credit_denominator INTEGER NOT NULL, finalized_at TEXT NOT NULL
     );
+    CREATE TABLE sale_reversals (
+      id TEXT PRIMARY KEY, sale_id TEXT NOT NULL UNIQUE, organization_id INTEGER NOT NULL,
+      booth_id INTEGER NOT NULL, reversed_by_user_id INTEGER NOT NULL,
+      reversed_by_clerk_user_id TEXT NOT NULL, reason_code TEXT NOT NULL,
+      reason_detail TEXT, reversed_at TEXT NOT NULL
+    );
     CREATE TABLE troop_inventory_balances (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       organization_id INTEGER NOT NULL,
@@ -440,6 +447,10 @@ function seed(database) {
       ('sale-other-cash', 200, 20, 'cash', 4, 34, '2026-05-04'),
       ('sale-other-card', 201, 20, 'credit_card', 2, 11, '2026-05-05');
 
+    INSERT INTO sale_reversals VALUES
+      ('reversal-demo', 'sale-demo-wallet', 1, 102, 10, 'clerk-super', 'duplicate_sale', NULL, '2026-05-06'),
+      ('reversal-other', 'sale-other-card', 2, 201, 20, 'clerk-other', 'wrong_quantity', NULL, '2026-05-07');
+
     INSERT INTO transactions VALUES
       ('txn-demo-line-1', 'sale-demo-cash', 100, 101, 11, 'sale', 2, 12.5, NULL, '2026-05-01'),
       ('txn-demo-line-2', 'sale-demo-card', 101, 102, 12, 'sale', 3, 23.25, NULL, '2026-05-02'),
@@ -586,6 +597,7 @@ function rowsForOrganization(snapshot, organizationId, table) {
     case "scouts":
     case "booth_scout_assignments":
     case "scout_sales_credits":
+    case "sale_reversals":
       return snapshot[table].filter(({ organization_id }) => organization_id === organizationId);
     case "assignments":
     case "inventory":

@@ -9,9 +9,11 @@ export function useActivePolling(
   {
     enabled = true,
     intervalMs = 15_000,
+    startImmediately = true,
   }: {
     enabled?: boolean;
     intervalMs?: number;
+    startImmediately?: boolean;
   } = {},
 ) {
   const taskRef = useRef(task);
@@ -83,14 +85,17 @@ export function useActivePolling(
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    if (enabled) synchronize();
+    if (enabled) {
+      if (startImmediately) synchronize();
+      else schedule();
+    }
     return () => {
       active = false;
       window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       cancelRequest(owner);
     };
-  }, [cancelRequest, enabled, intervalMs, refresh]);
+  }, [cancelRequest, enabled, intervalMs, refresh, startImmediately]);
 
   return refresh;
 }

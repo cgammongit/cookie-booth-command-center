@@ -50,13 +50,14 @@ export async function POST(
 
   const booth = await env.DB.prepare(`
     SELECT status, starts_at AS startsAt, ends_at AS endsAt,
-      archived_at AS archivedAt
+      archived_at AS archivedAt, sales_revision AS salesRevision
     FROM booths WHERE id = ?
   `).bind(boothId).first<{
     status: string;
     startsAt: string;
     endsAt: string;
     archivedAt: string | null;
+    salesRevision: number;
   }>();
   if (
     !booth ||
@@ -131,6 +132,7 @@ export async function POST(
       COALESCE(SUM(CASE WHEN payment_method = 'venmo_paypal' THEN total_amount ELSE 0 END), 0) AS venmoPaypal,
       COALESCE(SUM(total_amount), 0) AS gross
     FROM sales WHERE booth_id = ?
+      AND NOT EXISTS (SELECT 1 FROM sale_reversals r WHERE r.sale_id = sales.id)
   `).bind(boothId).first<{
     cash: number;
     creditCard: number;
@@ -169,8 +171,8 @@ export async function POST(
         id, booth_id, closed_by, cash_total, expected_cash_total, cash_discrepancy,
         digital_total, credit_card_total, venmo_paypal_total, gross_total,
         expected_box_count, actual_box_count, inventory_discrepancy_count,
-        notes, closed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        notes, closed_at, sales_revision
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       reconciliationId,
       boothId,
@@ -187,6 +189,7 @@ export async function POST(
       inventoryDiscrepancyCount,
       parsed.data.notes || null,
       closedAt,
+      booth.salesRevision,
     ),
   ];
 

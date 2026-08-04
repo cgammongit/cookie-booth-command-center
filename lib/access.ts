@@ -125,6 +125,7 @@ export type BoothAccess = OrganizationAccess & {
   canOperate: boolean;
   canManage: boolean;
   canReconcile: boolean;
+  canReverseSales: boolean;
   canViewReports: boolean;
 };
 
@@ -178,6 +179,10 @@ export async function getBoothAccess(boothId: number): Promise<BoothAccess | nul
       !booth.archivedAt &&
       booth.status !== "closed" &&
       hasOrganizationPermission(access.role, "booth.reconcile"),
+    canReverseSales:
+      !booth.archivedAt &&
+      booth.status !== "closed" &&
+      hasOrganizationPermission(access.role, "booth.sales.reverse"),
     canViewReports: hasOrganizationPermission(access.role, "report.view"),
   };
 }

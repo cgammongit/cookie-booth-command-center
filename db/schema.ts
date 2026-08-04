@@ -100,6 +100,7 @@ export const booths=sqliteTable("booths",{
  archiveReason:text("archive_reason"),
  archiveKind:text("archive_kind",{enum:["manual"]}),
  scoutAssignmentRevision:text("scout_assignment_revision").notNull().default(""),
+ salesRevision:integer("sales_revision").notNull().default(0),
 },t=>[
  index("booth_organization_status_start").on(t.organizationId,t.status,t.startsAt),
  index("booth_google_place").on(t.googlePlaceId),
@@ -195,6 +196,19 @@ export const sales=sqliteTable("sales",{
  index("sales_booth_created").on(t.boothId,t.createdAt),
  index("sales_booth_payment").on(t.boothId,t.paymentMethod),
 ]);
+export const saleReversals=sqliteTable("sale_reversals",{
+ id:text("id").primaryKey(),
+ saleId:text("sale_id").notNull().unique(),
+ organizationId:integer("organization_id").notNull(),
+ boothId:integer("booth_id").notNull(),
+ reversedByUserId:integer("reversed_by_user_id").notNull(),
+ reversedByClerkUserId:text("reversed_by_clerk_user_id").notNull(),
+ reasonCode:text("reason_code",{enum:["wrong_cookies","wrong_quantity","wrong_payment_method","duplicate_sale","other"]}).notNull(),
+ reasonDetail:text("reason_detail"),
+ reversedAt:text("reversed_at").notNull(),
+},t=>[
+ index("sale_reversals_org_booth_time").on(t.organizationId,t.boothId,t.reversedAt),
+]);
 export const transactions=sqliteTable("transactions",{id:text("id").primaryKey(),saleId:text("sale_id"),boothId:integer("booth_id").notNull(),productId:integer("product_id").notNull(),operatorId:integer("operator_id").notNull(),type:text("type",{enum:["sale","correction","adjustment"]}).notNull(),quantity:integer("quantity").notNull(),amount:real("amount").notNull(),reason:text("reason"),createdAt:text("created_at").notNull()},t=>[index("transactions_sale").on(t.saleId)]);
 export const reconciliations=sqliteTable("reconciliations",{
  id:integer("id").primaryKey({autoIncrement:true}),
@@ -212,6 +226,7 @@ export const reconciliations=sqliteTable("reconciliations",{
  inventoryDiscrepancyCount:integer("inventory_discrepancy_count").notNull().default(0),
  notes:text("notes"),
  closedAt:text("closed_at").notNull(),
+ salesRevision:integer("sales_revision").notNull().default(0),
 });
 export const reconciliationItems=sqliteTable("reconciliation_items",{
  id:integer("id").primaryKey({autoIncrement:true}),

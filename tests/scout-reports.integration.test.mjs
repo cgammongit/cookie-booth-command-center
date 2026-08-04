@@ -9,6 +9,7 @@ sqlite.exec(`
  CREATE TABLE memberships(id INTEGER PRIMARY KEY,organization_id INTEGER,user_id INTEGER,role TEXT,status TEXT,can_invite_users INTEGER,created_at TEXT,updated_at TEXT);
  CREATE TABLE booths(id INTEGER PRIMARY KEY,organization_id INTEGER,name TEXT,starts_at TEXT,status TEXT,archived_at TEXT);
  CREATE TABLE sales(id TEXT PRIMARY KEY,booth_id INTEGER,operator_id INTEGER,payment_method TEXT,box_count INTEGER,total_amount REAL,created_at TEXT);
+ CREATE TABLE sale_reversals(id TEXT PRIMARY KEY,sale_id TEXT UNIQUE);
  CREATE TABLE transactions(id TEXT PRIMARY KEY,sale_id TEXT,booth_id INTEGER,product_id INTEGER,operator_id INTEGER,type TEXT,quantity INTEGER,amount REAL,reason TEXT,created_at TEXT);
  CREATE TABLE products(id INTEGER PRIMARY KEY,organization_id INTEGER,name TEXT,barcode TEXT,price REAL,active INTEGER,updated_at TEXT);
  CREATE TABLE reconciliations(id INTEGER PRIMARY KEY,booth_id INTEGER,closed_by INTEGER,cash_total REAL,expected_cash_total REAL,cash_discrepancy REAL,digital_total REAL,credit_card_total REAL,venmo_paypal_total REAL,gross_total REAL,expected_box_count INTEGER,actual_box_count INTEGER,inventory_discrepancy_count INTEGER,notes TEXT,closed_at TEXT);
@@ -50,4 +51,16 @@ test("actual report handler totals finalized fractional credit across booths and
 test("actual report handler rejects selected booths outside the authenticated organization",async()=>{
  const response=await route.GET(new Request("https://app.test/api/reports/booth-sales?organizationId=1&boothIds=30"));
  assert.equal(response.status,403);
+});
+
+test("actual report handler excludes a reversed sale and its finalized credit defensively",async()=>{
+ sqlite.prepare("INSERT INTO sale_reversals VALUES('r-s2','s2')").run();
+ try {
+  const response=await route.GET(new Request("https://app.test/api/reports/booth-sales?organizationId=1&boothIds=10,20"));
+  assert.equal(response.status,200); const payload=await response.json();
+  const scout=payload.report.scoutSales.find((item)=>item.scoutName==="Scout One");
+  assert.equal(scout.creditedBoxes,2.5); assert.equal(scout.reconciledBooths,1);
+  const booth=payload.report.boothSales.find((item)=>Number(item.boothId)===20);
+  assert.equal(Number(booth.gross),0); assert.equal(Number(booth.boxCount),0);
+ } finally { sqlite.prepare("DELETE FROM sale_reversals WHERE id='r-s2'").run(); }
 });

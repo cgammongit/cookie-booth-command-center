@@ -26,6 +26,7 @@ SELECT
   (SELECT COUNT(*) FROM products) AS products,
   (SELECT COUNT(*) FROM inventory) AS boothInventory,
   (SELECT COUNT(*) FROM sales) AS sales,
+  (SELECT COUNT(*) FROM sale_reversals) AS saleReversals,
   (SELECT COUNT(*) FROM transactions WHERE type IN ('adjustment','correction')) AS adjustments,
   (SELECT COUNT(*) FROM reconciliations) AS reconciliations,
   (SELECT COUNT(*) FROM reconciliation_items) AS reconciliationItems,
@@ -68,6 +69,11 @@ SELECT
     WHERE b.id IS NULL OR sc.id IS NULL OR s.id IS NULL OR t.id IS NULL OR r.id IS NULL
       OR c.organization_id<>b.organization_id OR c.organization_id<>sc.organization_id
       OR s.booth_id<>c.booth_id OR t.sale_id<>c.sale_id OR c.credit_numerator<=0 OR c.credit_denominator<=0) AS invalidScoutCredits
+  ,(SELECT COUNT(*) FROM sale_reversals sr
+    LEFT JOIN sales s ON s.id=sr.sale_id LEFT JOIN booths b ON b.id=sr.booth_id
+    LEFT JOIN users u ON u.id=sr.reversed_by_user_id
+    WHERE s.id IS NULL OR b.id IS NULL OR u.id IS NULL OR s.booth_id<>sr.booth_id
+      OR b.organization_id<>sr.organization_id) AS invalidSaleReversals
 `.trim();
 
 function rowsFromWranglerJson(output) {

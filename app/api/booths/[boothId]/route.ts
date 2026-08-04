@@ -41,6 +41,7 @@ export async function GET(
         COALESCE(SUM(total_amount), 0) AS gross
       FROM sales
       WHERE booth_id = ?
+        AND NOT EXISTS (SELECT 1 FROM sale_reversals r WHERE r.sale_id = sales.id)
     `).bind(boothId).first(),
   ]);
 
@@ -61,6 +62,7 @@ export async function GET(
       canOperate: authorization.access.canOperate,
       canManage: authorization.access.canManage,
       canReconcile: authorization.access.canReconcile,
+      canReverseSales: authorization.access.canReverseSales,
       canViewReports: authorization.access.canViewReports,
     },
   });

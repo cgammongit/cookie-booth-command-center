@@ -148,7 +148,9 @@ export async function GET(request: Request) {
         COALESCE(SUM(CASE WHEN s.payment_method = 'credit_card' THEN s.total_amount ELSE 0 END), 0) AS creditCard,
         COALESCE(SUM(CASE WHEN s.payment_method = 'venmo_paypal' THEN s.total_amount ELSE 0 END), 0) AS venmoPaypal
       FROM booths b
-      LEFT JOIN sales s ON s.booth_id = b.id ${dateSql}
+      LEFT JOIN sales s ON s.booth_id = b.id
+        AND NOT EXISTS (SELECT 1 FROM sale_reversals sr WHERE sr.sale_id = s.id)
+        ${dateSql}
       WHERE b.organization_id = ? AND b.id IN (${placeholders})
       GROUP BY b.id, b.name
       ORDER BY gross DESC, b.name
@@ -159,11 +161,12 @@ export async function GET(request: Request) {
         COALESCE(SUM(t.amount), 0) AS gross
       FROM transactions t
       JOIN sales s ON s.id = t.sale_id
+      LEFT JOIN sale_reversals sr ON sr.sale_id = s.id
       JOIN products p ON p.id = t.product_id
       JOIN booths b ON b.id = s.booth_id
       WHERE b.organization_id = ?
         AND s.booth_id IN (${placeholders})
-        AND t.type = 'sale'
+        AND t.type = 'sale' AND sr.id IS NULL
         ${dateSql}
       GROUP BY p.id, p.name
       ORDER BY boxCount DESC, p.name
@@ -194,8 +197,9 @@ export async function GET(request: Request) {
       JOIN booths b ON b.id = c.booth_id
       JOIN transactions t ON t.id = c.transaction_id
       JOIN sales s ON s.id = c.sale_id
+      LEFT JOIN sale_reversals sr ON sr.sale_id = s.id
       JOIN products p ON p.id = t.product_id
-      WHERE c.organization_id = ? AND c.booth_id IN (${placeholders})
+      WHERE c.organization_id = ? AND c.booth_id IN (${placeholders}) AND sr.id IS NULL
         ${dateSql}
       ORDER BY sc.name COLLATE NOCASE, b.starts_at, p.name
     `).bind(parsed.data.organizationId, ...boothIds, ...dateBindings).all<ScoutCreditRow>(),
